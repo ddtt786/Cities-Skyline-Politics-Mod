@@ -24,22 +24,33 @@ namespace PoliticsMod
         // Parliament seats are computed dynamically from population at the time
         // an election is called: 1 seat per N citizens, clamped to a sane range,
         // and rounded to the nearest odd number so ties are impossible.
-        public const int SeatsPerCitizens   = 1000;
+        public const int SeatsPerCitizens = 1000;
         public const int MinParliamentSeats = 25;
         public const int MaxParliamentSeats = 601;
 
-        /// <summary>Dynamic seat count based on current population.</summary>
+        /// <summary>Calculate parliamentary seats for a given population.</summary>
+        public static int CalculateParliamentSeats(int pop)
+        {
+            int seats = pop / SeatsPerCitizens;
+            if (seats < MinParliamentSeats) seats = MinParliamentSeats;
+            if (seats > MaxParliamentSeats) seats = MaxParliamentSeats;
+            // Force odd so coalitions can always clear 50%.
+            if ((seats & 1) == 0) seats++;
+            return seats;
+        }
+
+        /// <summary>
+        /// Parliamentary seat count. Fixed during an active term; reflects
+        /// current population only before the first election.
+        /// </summary>
         public static int ParliamentSeats
         {
             get
             {
-                int pop = CitizenManagerUtil.GetPopulation();
-                int seats = pop / SeatsPerCitizens;
-                if (seats < MinParliamentSeats) seats = MinParliamentSeats;
-                if (seats > MaxParliamentSeats) seats = MaxParliamentSeats;
-                // Force odd so coalitions can always clear 50%.
-                if ((seats & 1) == 0) seats++;
-                return seats;
+                var st = PoliticsState.Instance;
+                if (st != null && st.ActiveParliamentSeats > 0)
+                    return st.ActiveParliamentSeats;
+                return CalculateParliamentSeats(CitizenManagerUtil.GetPopulation());
             }
         }
 
@@ -49,31 +60,31 @@ namespace PoliticsMod
             get { return (ParliamentSeats / 2) + 1; }
         }
 
-        public const int MinPopulationForElections  = 0;    // 0 = no gate; parliament still floors at MinParliamentSeats
+        public const int MinPopulationForElections = 0;    // 0 = no gate; parliament still floors at MinParliamentSeats
         // Default values for the runtime-editable fields below. The *actual*
         // values used by the simulation live in RuntimeConfig and are editable
         // via the in-game panel and persisted in the savegame.
-        public const float DefaultTermLengthDays         = 365f; // in-game days between elections (1 year)
-        public const float DefaultCampaignLengthDays     = 7f;   // campaign duration before voting day
+        public const float DefaultTermLengthDays = 365f; // in-game days between elections (1 year)
+        public const float DefaultCampaignLengthDays = 7f;   // campaign duration before voting day
         public const float DefaultReElectionCooldownDays = 14f;  // pause after failed coalition
-        public const int   MaxCoalitionPartners          = 4;    // coalition cannot exceed this many parties
+        public const int MaxCoalitionPartners = 4;    // coalition cannot exceed this many parties
 
         // -- Voter model ----------------------------------------------------
-        public const float VoterNoise               = 0.25f; // 0..1, randomness in voter decisions
-        public const float TurnoutBase              = 0.55f; // base turnout if happy
-        public const float TurnoutHappinessBoost    = 0.35f; // + up to this much from happiness
-        public const int   VoterSampleSize          = 5000;  // citizens sampled per election (perf)
+        public const float VoterNoise = 0.25f; // 0..1, randomness in voter decisions
+        public const float TurnoutBase = 0.55f; // base turnout if happy
+        public const float TurnoutHappinessBoost = 0.35f; // + up to this much from happiness
+        public const int VoterSampleSize = 5000;  // citizens sampled per election (perf)
 
         // -- UI --------------------------------------------------------------
         public const KeyCode DefaultTogglePanelKey = KeyCode.P;  // default: Ctrl+P opens panel
-        public const float   NotificationDurationS  = 8f;
+        public const float NotificationDurationS = 8f;
 
         // -- Info-view overlay ----------------------------------------------
-        public const float OverlayDotSize           = 12f;   // pixels
-        public const float OverlayMaxDistance       = 1500f; // world units from camera
+        public const float OverlayDotSize = 12f;   // pixels
+        public const float OverlayMaxDistance = 1500f; // world units from camera
 
         // -- Log prefix -----------------------------------------------------
-        public const string LogPrefix               = "[PoliticsMod] ";
+        public const string LogPrefix = "[PoliticsMod] ";
 
         // -- Parties --------------------------------------------------------
         //  Ideology axes are -1..+1 per axis.

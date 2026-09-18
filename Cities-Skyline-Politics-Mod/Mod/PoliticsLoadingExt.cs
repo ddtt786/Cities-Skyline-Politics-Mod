@@ -44,11 +44,24 @@ namespace PoliticsMod
             if (st.DominantPartyByBuilding == null || st.DominantPartyByBuilding.Length != bSize)
             {
                 st.DominantPartyByBuilding = new byte[bSize];
-                st.TurnoutByBuilding       = new byte[bSize];
-                st.SatisfactionByBuilding  = new byte[bSize];
+                st.TurnoutByBuilding = new byte[bSize];
+                st.SatisfactionByBuilding = new byte[bSize];
                 // Sentinel: 255 = "no data yet", so the overlay skips buildings before
                 // the first election instead of drawing them all as party 0.
                 for (int i = 0; i < bSize; i++) st.DominantPartyByBuilding[i] = 255;
+            }
+
+            // If no valid building overlay data exists yet but an election already took place,
+            // rebuild it immediately from resident citizens so building colors work right away.
+            bool hasOverlayData = false;
+            for (int i = 0; i < st.DominantPartyByBuilding.Length; i++)
+            {
+                if (st.DominantPartyByBuilding[i] < PartyCountRef.Value) { hasOverlayData = true; break; }
+            }
+            if (!hasOverlayData && (st.LastResult != null || st.History.Count > 0))
+            {
+                PoliticsUserMod.Log("Rebuilding building overlay data from residents on load...");
+                ElectionEngine.RebuildBuildingOverlayData();
             }
 
             st.Initialized = true;
@@ -61,7 +74,7 @@ namespace PoliticsMod
             try
             {
                 var uiView = UIView.GetAView();
-                _panel   = uiView.AddUIComponent(typeof(PoliticsPanel)) as PoliticsPanel;
+                _panel = uiView.AddUIComponent(typeof(PoliticsPanel)) as PoliticsPanel;
                 if (_panel != null) _panel.isVisible = false;
 
                 // Overlay is a plain MonoBehaviour on its own GameObject so OnGUI
@@ -84,7 +97,7 @@ namespace PoliticsMod
         public override void OnLevelUnloading()
         {
             base.OnLevelUnloading();
-            if (_panel != null)   { UnityEngine.Object.Destroy(_panel.gameObject);   _panel = null; }
+            if (_panel != null) { UnityEngine.Object.Destroy(_panel.gameObject); _panel = null; }
             if (_overlay != null) { UnityEngine.Object.Destroy(_overlay.gameObject); _overlay = null; }
             if (_infoBtn != null) { UnityEngine.Object.Destroy(_infoBtn.gameObject); _infoBtn = null; }
             if (PoliticsState.Instance != null) PoliticsState.Instance.Initialized = false;

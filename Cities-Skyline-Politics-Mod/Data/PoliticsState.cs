@@ -26,6 +26,8 @@ namespace PoliticsMod
         public ElectionPhase Phase = ElectionPhase.Idle;
 
         // Current parliament / coalition
+        public int ActiveParliamentSeats;                               // Fixed total seats for the current term
+        public int[] ActiveSenateSeats = new int[PartyCountRef.Value];   // Fixed Senate seats for the current term
         public int[] CurrentSeats = new int[PartyCountRef.Value];
         public float[] CurrentSupport = new float[PartyCountRef.Value]; // drifts during campaign
         public List<int> CoalitionPartyIds = new List<int>();

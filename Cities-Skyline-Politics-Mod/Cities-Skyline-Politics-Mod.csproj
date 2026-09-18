@@ -38,6 +38,10 @@
           <HintPath>..\packages\Lib.Harmony.2.4.2\lib\net35\0Harmony.dll</HintPath>
           <Private>False</Private>
         </Reference>
+        <Reference Include="CitiesHarmony.API">
+          <HintPath>..\packages\CitiesHarmony.API\CitiesHarmony.API.dll</HintPath>
+          <Private>False</Private>
+        </Reference>
         <Reference Include="Assembly-CSharp">
           <HintPath>D:\Apps\Steam\steamapps\common\Cities_Skylines\Cities_Data\Managed\Assembly-CSharp.dll</HintPath>
             <Private>False</Private>
@@ -110,6 +114,7 @@
         <Compile Include="Config\ModSettings.cs"/>
         <Compile Include="Config\RuntimeConfig.cs"/>
         <Compile Include="Config\VoterTraits.cs"/>
+        <Compile Include="Data\DistrictResult.cs"/>
         <Compile Include="Data\ElectionResult.cs"/>
         <Compile Include="Data\Enums.cs"/>
         <Compile Include="Data\PartyBlob.cs"/>
@@ -129,6 +134,7 @@
         <Compile Include="Localization\Language.cs"/>
         <Compile Include="Localization\Languages\En.cs"/>
         <Compile Include="Localization\Languages\Ja.cs"/>
+        <Compile Include="Localization\Languages\Ko.cs"/>
         <Compile Include="Localization\Languages\Pt.cs"/>
         <Compile Include="Localization\Languages\Ru.cs"/>
         <Compile Include="Localization\Languages\Zh.cs"/>

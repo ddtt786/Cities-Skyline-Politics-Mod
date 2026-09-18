@@ -64,7 +64,18 @@ namespace PoliticsMod
                     // Find THIS type's own declared GetColor, not the inherited one.
                     var method = t.GetMethod(
                         "GetColor",
-                        BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
+                        BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly,
+                        null,
+                        new Type[] { typeof(ushort), typeof(Building).MakeByRefType(), typeof(InfoManager.InfoMode), typeof(InfoManager.SubInfoMode) },
+                        null);
+                    if (method == null)
+                    {
+                        // Fallback in case of any subtle parameter variation
+                        foreach (var m in t.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
+                        {
+                            if (m.Name == "GetColor") { method = m; break; }
+                        }
+                    }
                     if (method == null) continue;
                     try
                     {

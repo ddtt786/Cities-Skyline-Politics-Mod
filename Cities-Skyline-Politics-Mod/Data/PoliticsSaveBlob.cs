@@ -39,6 +39,13 @@ namespace PoliticsMod
         public float RcDeficitPressureMultiplier = -1f;
         // v9: incumbency bonus probability. Sentinel -1f = "not saved".
         public float RcIncumbencyBonus = -1f;
+        // v10: fixed parliamentary seat count and Senate seats
+        public int ActiveParliamentSeats;
+        public int[] ActiveSenateSeats;
+        // v11: building overlay arrays
+        public byte[] DominantPartyByBuilding;
+        public byte[] TurnoutByBuilding;
+        public byte[] SatisfactionByBuilding;
         // v3: persisted party list (overrides Config.Parties defaults)
         public List<PartyBlob> Parties = new List<PartyBlob>();
         // v4: voter trait biases
@@ -50,22 +57,27 @@ namespace PoliticsMod
         {
             var b = new PoliticsSaveBlob
             {
-                DaysSinceLastElection  = st.DaysSinceLastElection,
+                DaysSinceLastElection = st.DaysSinceLastElection,
                 DaysSinceCampaignStart = st.DaysSinceCampaignStart,
-                Phase           = (int)st.Phase,
-                CurrentSeats    = (int[])st.CurrentSeats.Clone(),
-                CurrentSupport  = (float[])st.CurrentSupport.Clone(),
+                Phase = (int)st.Phase,
+                ActiveParliamentSeats = st.ActiveParliamentSeats,
+                ActiveSenateSeats = st.ActiveSenateSeats != null ? (int[])st.ActiveSenateSeats.Clone() : new int[PartyCountRef.Value],
+                CurrentSeats = (int[])st.CurrentSeats.Clone(),
+                CurrentSupport = (float[])st.CurrentSupport.Clone(),
                 CoalitionPartyIds = new List<int>(st.CoalitionPartyIds),
                 ApprovalByParty = (int[])st.ApprovalByParty.Clone(),
-                History         = new List<ElectionResult>(st.History),
+                History = new List<ElectionResult>(st.History),
                 PoliciesApplied = st.PoliciesApplied,
-                Overlay         = (int)st.Overlay,
+                Overlay = (int)st.Overlay,
                 FailedCooldownRemaining = st.FailedCooldownRemaining,
-                RcTermLengthDays         = RuntimeConfig.TermLengthDays,
-                RcCampaignLengthDays     = RuntimeConfig.CampaignLengthDays,
+                RcTermLengthDays = RuntimeConfig.TermLengthDays,
+                RcCampaignLengthDays = RuntimeConfig.CampaignLengthDays,
                 RcReElectionCooldownDays = RuntimeConfig.ReElectionCooldownDays,
                 RcDeficitPressureMultiplier = RuntimeConfig.DeficitPressureMultiplier,
-                RcIncumbencyBonus           = RuntimeConfig.IncumbencyBonus,
+                RcIncumbencyBonus = RuntimeConfig.IncumbencyBonus,
+                DominantPartyByBuilding = st.DominantPartyByBuilding != null ? (byte[])st.DominantPartyByBuilding.Clone() : null,
+                TurnoutByBuilding = st.TurnoutByBuilding != null ? (byte[])st.TurnoutByBuilding.Clone() : null,
+                SatisfactionByBuilding = st.SatisfactionByBuilding != null ? (byte[])st.SatisfactionByBuilding.Clone() : null,
             };
             foreach (var p in st.AppliedVanillaPolicies) b.AppliedVanillaPolicies.Add((int)p);
             // v3: capture parties
@@ -101,38 +113,46 @@ namespace PoliticsMod
         private static void ApplyVoterBiases(float[] v)
         {
             if (v == null || v.Length < 14) return;
-            VoterTraits.BiasEduUneducated     = v[0];
-            VoterTraits.BiasEduEducated       = v[1];
-            VoterTraits.BiasEduWellEducated   = v[2];
+            VoterTraits.BiasEduUneducated = v[0];
+            VoterTraits.BiasEduEducated = v[1];
+            VoterTraits.BiasEduWellEducated = v[2];
             VoterTraits.BiasEduHighlyEducated = v[3];
-            VoterTraits.BiasWealthLow         = v[4];
-            VoterTraits.BiasWealthMedium      = v[5];
-            VoterTraits.BiasWealthHigh        = v[6];
-            VoterTraits.BiasEmployed          = v[7];
-            VoterTraits.BiasUnemployed        = v[8];
-            VoterTraits.BiasYoung             = v[9];
-            VoterTraits.BiasAdult             = v[10];
-            VoterTraits.BiasSenior            = v[11];
-            VoterTraits.BiasSick              = v[12];
-            VoterTraits.BiasHighPollution     = v[13];
+            VoterTraits.BiasWealthLow = v[4];
+            VoterTraits.BiasWealthMedium = v[5];
+            VoterTraits.BiasWealthHigh = v[6];
+            VoterTraits.BiasEmployed = v[7];
+            VoterTraits.BiasUnemployed = v[8];
+            VoterTraits.BiasYoung = v[9];
+            VoterTraits.BiasAdult = v[10];
+            VoterTraits.BiasSenior = v[11];
+            VoterTraits.BiasSick = v[12];
+            VoterTraits.BiasHighPollution = v[13];
         }
 
         public void Apply(PoliticsState st)
         {
-            st.DaysSinceLastElection  = DaysSinceLastElection;
+            st.DaysSinceLastElection = DaysSinceLastElection;
             st.DaysSinceCampaignStart = DaysSinceCampaignStart;
-            st.Phase           = (ElectionPhase)Phase;
-            st.CurrentSeats    = CurrentSeats    ?? new int[PartyCountRef.Value];
-            st.CurrentSupport  = CurrentSupport  ?? new float[PartyCountRef.Value];
+            st.Phase = (ElectionPhase)Phase;
+            st.ActiveParliamentSeats = ActiveParliamentSeats;
+            st.ActiveSenateSeats = ActiveSenateSeats ?? new int[PartyCountRef.Value];
+            st.CurrentSeats = CurrentSeats ?? new int[PartyCountRef.Value];
+            st.CurrentSupport = CurrentSupport ?? new float[PartyCountRef.Value];
             st.ApprovalByParty = ApprovalByParty ?? new int[PartyCountRef.Value];
             st.CoalitionPartyIds = CoalitionPartyIds ?? new List<int>();
-            st.History         = History ?? new List<ElectionResult>();
+            st.History = History ?? new List<ElectionResult>();
             st.PoliciesApplied = PoliciesApplied;
             // Always start with the overlay off on load. The overlay is a
             // view mode, not persistent political state, and waking up a save
             // with buildings tinted by a view that isn't visibly engaged
             // feels wrong.
-            st.Overlay         = OverlayMode.Off;
+            st.Overlay = OverlayMode.Off;
+            if (DominantPartyByBuilding != null && DominantPartyByBuilding.Length > 0)
+                st.DominantPartyByBuilding = (byte[])DominantPartyByBuilding.Clone();
+            if (TurnoutByBuilding != null && TurnoutByBuilding.Length > 0)
+                st.TurnoutByBuilding = (byte[])TurnoutByBuilding.Clone();
+            if (SatisfactionByBuilding != null && SatisfactionByBuilding.Length > 0)
+                st.SatisfactionByBuilding = (byte[])SatisfactionByBuilding.Clone();
             st.FailedCooldownRemaining = FailedCooldownRemaining;
             st.AppliedVanillaPolicies.Clear();
             if (AppliedVanillaPolicies != null)
@@ -141,11 +161,11 @@ namespace PoliticsMod
 
             // Push persisted runtime config back into RuntimeConfig (only if we
             // actually loaded values, i.e. v2+ saves - otherwise leave defaults).
-            if (RcTermLengthDays     > 0f) RuntimeConfig.TermLengthDays         = RcTermLengthDays;
-            if (RcCampaignLengthDays > 0f) RuntimeConfig.CampaignLengthDays     = RcCampaignLengthDays;
+            if (RcTermLengthDays > 0f) RuntimeConfig.TermLengthDays = RcTermLengthDays;
+            if (RcCampaignLengthDays > 0f) RuntimeConfig.CampaignLengthDays = RcCampaignLengthDays;
             if (RcReElectionCooldownDays >= 0f) RuntimeConfig.ReElectionCooldownDays = RcReElectionCooldownDays;
             if (RcDeficitPressureMultiplier >= 0f) RuntimeConfig.DeficitPressureMultiplier = RcDeficitPressureMultiplier;
-            if (RcIncumbencyBonus           >= 0f) RuntimeConfig.IncumbencyBonus           = RcIncumbencyBonus;
+            if (RcIncumbencyBonus >= 0f) RuntimeConfig.IncumbencyBonus = RcIncumbencyBonus;
             RuntimeConfig.ClampAll();
 
             // v3: restore parties (overrides Config.Parties defaults)
@@ -160,8 +180,8 @@ namespace PoliticsMod
                 Config.Parties = arr;
                 // Resize per-party arrays on the state to match.
                 int n = arr.Length;
-                if (st.CurrentSeats    == null || st.CurrentSeats.Length    != n) st.CurrentSeats    = ResizeIntArrayInt(st.CurrentSeats, n);
-                if (st.CurrentSupport  == null || st.CurrentSupport.Length  != n) st.CurrentSupport  = ResizeFloatArrayInt(st.CurrentSupport, n);
+                if (st.CurrentSeats == null || st.CurrentSeats.Length != n) st.CurrentSeats = ResizeIntArrayInt(st.CurrentSeats, n);
+                if (st.CurrentSupport == null || st.CurrentSupport.Length != n) st.CurrentSupport = ResizeFloatArrayInt(st.CurrentSupport, n);
                 if (st.ApprovalByParty == null || st.ApprovalByParty.Length != n) st.ApprovalByParty = ResizeIntArrayInt(st.ApprovalByParty, n);
                 if (st.CoalitionPartyIds != null) st.CoalitionPartyIds.RemoveAll(id => id < 0 || id >= n);
             }
@@ -251,20 +271,45 @@ namespace PoliticsMod
             {
                 s.WriteFloat(RcIncumbencyBonus);
             }
+
+            // v10 additions: fixed parliament seats and senate seats
+            if (s.version >= 10)
+            {
+                s.WriteInt32(ActiveParliamentSeats);
+                int asLen = ActiveSenateSeats != null ? ActiveSenateSeats.Length : 0;
+                s.WriteInt32(asLen);
+                for (int i = 0; i < asLen; i++) s.WriteInt32(ActiveSenateSeats[i]);
+            }
+
+            // v11 additions: building overlay arrays
+            if (s.version >= 11)
+            {
+                int dpLen = DominantPartyByBuilding != null ? DominantPartyByBuilding.Length : 0;
+                s.WriteInt32(dpLen);
+                for (int i = 0; i < dpLen; i++) s.WriteUInt8(DominantPartyByBuilding[i]);
+
+                int toLen = TurnoutByBuilding != null ? TurnoutByBuilding.Length : 0;
+                s.WriteInt32(toLen);
+                for (int i = 0; i < toLen; i++) s.WriteUInt8(TurnoutByBuilding[i]);
+
+                int saLen = SatisfactionByBuilding != null ? SatisfactionByBuilding.Length : 0;
+                s.WriteInt32(saLen);
+                for (int i = 0; i < saLen; i++) s.WriteUInt8(SatisfactionByBuilding[i]);
+            }
         }
 
         public void Deserialize(DataSerializer s)
         {
-            DaysSinceLastElection  = s.ReadFloat();
+            DaysSinceLastElection = s.ReadFloat();
             DaysSinceCampaignStart = s.ReadFloat();
             Phase = s.ReadInt32();
 
             int n = s.ReadInt32();
-            CurrentSeats    = new int[n];
-            CurrentSupport  = new float[n];
+            CurrentSeats = new int[n];
+            CurrentSupport = new float[n];
             ApprovalByParty = new int[n];
-            for (int i = 0; i < n; i++) CurrentSeats[i]    = s.ReadInt32();
-            for (int i = 0; i < n; i++) CurrentSupport[i]  = s.ReadFloat();
+            for (int i = 0; i < n; i++) CurrentSeats[i] = s.ReadInt32();
+            for (int i = 0; i < n; i++) CurrentSupport[i] = s.ReadFloat();
             for (int i = 0; i < n; i++) ApprovalByParty[i] = s.ReadInt32();
 
             int c = s.ReadInt32();
@@ -291,14 +336,14 @@ namespace PoliticsMod
             // v2 additions
             if (s.version >= 2)
             {
-                RcTermLengthDays         = s.ReadFloat();
-                RcCampaignLengthDays     = s.ReadFloat();
+                RcTermLengthDays = s.ReadFloat();
+                RcCampaignLengthDays = s.ReadFloat();
                 RcReElectionCooldownDays = s.ReadFloat();
             }
             else
             {
-                RcTermLengthDays         = -1f;
-                RcCampaignLengthDays     = -1f;
+                RcTermLengthDays = -1f;
+                RcCampaignLengthDays = -1f;
                 RcReElectionCooldownDays = -1f;
             }
 
@@ -355,6 +400,49 @@ namespace PoliticsMod
             else
             {
                 RcIncumbencyBonus = -1f;
+            }
+
+            // v10: fixed parliament seats and senate seats
+            if (s.version >= 10)
+            {
+                ActiveParliamentSeats = s.ReadInt32();
+                int asLen = s.ReadInt32();
+                ActiveSenateSeats = new int[asLen];
+                for (int i = 0; i < asLen; i++) ActiveSenateSeats[i] = s.ReadInt32();
+            }
+            else
+            {
+                ActiveParliamentSeats = 0;
+                ActiveSenateSeats = new int[PartyCountRef.Value];
+            }
+
+            // v11 additions: building overlay arrays
+            if (s.version >= 11)
+            {
+                int dpLen = s.ReadInt32();
+                if (dpLen > 0)
+                {
+                    DominantPartyByBuilding = new byte[dpLen];
+                    for (int i = 0; i < dpLen; i++) DominantPartyByBuilding[i] = (byte)s.ReadUInt8();
+                }
+                int toLen = s.ReadInt32();
+                if (toLen > 0)
+                {
+                    TurnoutByBuilding = new byte[toLen];
+                    for (int i = 0; i < toLen; i++) TurnoutByBuilding[i] = (byte)s.ReadUInt8();
+                }
+                int saLen = s.ReadInt32();
+                if (saLen > 0)
+                {
+                    SatisfactionByBuilding = new byte[saLen];
+                    for (int i = 0; i < saLen; i++) SatisfactionByBuilding[i] = (byte)s.ReadUInt8();
+                }
+            }
+            else
+            {
+                DominantPartyByBuilding = null;
+                TurnoutByBuilding = null;
+                SatisfactionByBuilding = null;
             }
         }
 

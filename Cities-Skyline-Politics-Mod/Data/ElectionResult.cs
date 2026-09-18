@@ -39,6 +39,12 @@ namespace PoliticsMod
         // Wealth: 0=Low, 1=Medium, 2=High.
         public int[,] VotesByWealthParty;
 
+        // v10: fixed parliamentary seat count and Senate seats
+        public int ParliamentSeatsTotal;
+        public int[] SenateSeatsByParty;
+        public int TotalSenateSeats;
+        public List<DistrictResult> DistrictResults = new List<DistrictResult>();
+
         public void Serialize(DataSerializer s)
         {
             s.WriteInt32(Year);
@@ -56,12 +62,23 @@ namespace PoliticsMod
 
             // v6: demographic cross-tabs (age × party, edu × party, wealth × party).
             // Written as (bucketCount, partyCount, flattened ints).
-            WriteMatrix(s, VotesByAgeParty,    3);
-            WriteMatrix(s, VotesByEduParty,    4);
+            WriteMatrix(s, VotesByAgeParty, 3);
+            WriteMatrix(s, VotesByEduParty, 4);
             WriteMatrix(s, VotesByWealthParty, 3);
+
+            // v10: fixed parliament seats, senate seats, and per-district results
+            s.WriteInt32(ParliamentSeatsTotal);
+            int sn = SenateSeatsByParty != null ? SenateSeatsByParty.Length : 0;
+            s.WriteInt32(sn);
+            for (int i = 0; i < sn; i++) s.WriteInt32(SenateSeatsByParty[i]);
+            s.WriteInt32(TotalSenateSeats);
+
+            int dn = DistrictResults != null ? DistrictResults.Count : 0;
+            s.WriteInt32(dn);
+            for (int i = 0; i < dn; i++) DistrictResults[i].Serialize(s);
         }
 
-        private static void WriteMatrix(DataSerializer s, int[,] m, int fallbackBuckets)
+        public static void WriteMatrix(DataSerializer s, int[,] m, int fallbackBuckets)
         {
             int rows = m != null ? m.GetLength(0) : fallbackBuckets;
             int cols = m != null ? m.GetLength(1) : 0;
@@ -72,7 +89,7 @@ namespace PoliticsMod
                     s.WriteInt32(m[r, c]);
         }
 
-        private static int[,] ReadMatrix(DataSerializer s)
+        public static int[,] ReadMatrix(DataSerializer s)
         {
             int rows = s.ReadInt32();
             int cols = s.ReadInt32();
@@ -85,19 +102,19 @@ namespace PoliticsMod
 
         public void Deserialize(DataSerializer s)
         {
-            Year  = s.ReadInt32();
+            Year = s.ReadInt32();
             Month = s.ReadInt32();
             int n = s.ReadInt32();
-            SeatsByParty     = new int[n];
+            SeatsByParty = new int[n];
             VoteShareByParty = new float[n];
-            ApprovalByParty  = new int[n];
-            for (int i = 0; i < n; i++) SeatsByParty[i]     = s.ReadInt32();
+            ApprovalByParty = new int[n];
+            for (int i = 0; i < n; i++) SeatsByParty[i] = s.ReadInt32();
             for (int i = 0; i < n; i++) VoteShareByParty[i] = s.ReadFloat();
             Turnout = s.ReadFloat();
             int c = s.ReadInt32();
             CoalitionPartyIds = new List<int>(c);
             for (int i = 0; i < c; i++) CoalitionPartyIds.Add(s.ReadInt32());
-            for (int i = 0; i < n; i++) ApprovalByParty[i]  = s.ReadInt32();
+            for (int i = 0; i < n; i++) ApprovalByParty[i] = s.ReadInt32();
             // v5 tail (optional - old saves don't have it)
             if (s.version >= 5)
             {
@@ -113,9 +130,39 @@ namespace PoliticsMod
             // v6 tail - demographic cross-tabs
             if (s.version >= 6)
             {
-                VotesByAgeParty    = ReadMatrix(s);
-                VotesByEduParty    = ReadMatrix(s);
+                VotesByAgeParty = ReadMatrix(s);
+                VotesByEduParty = ReadMatrix(s);
                 VotesByWealthParty = ReadMatrix(s);
+            }
+
+            // v10 tail - fixed seats, senate seats, and per-district results
+            if (s.version >= 10)
+            {
+                ParliamentSeatsTotal = s.ReadInt32();
+                int sn = s.ReadInt32();
+                SenateSeatsByParty = new int[sn];
+                for (int i = 0; i < sn; i++) SenateSeatsByParty[i] = s.ReadInt32();
+                TotalSenateSeats = s.ReadInt32();
+
+                int dn = s.ReadInt32();
+                DistrictResults = new List<DistrictResult>(dn);
+                for (int i = 0; i < dn; i++)
+                {
+                    var dr = new DistrictResult();
+                    dr.Deserialize(s);
+                    DistrictResults.Add(dr);
+                }
+            }
+            else
+            {
+                ParliamentSeatsTotal = 0;
+                if (SeatsByParty != null)
+                {
+                    for (int i = 0; i < SeatsByParty.Length; i++) ParliamentSeatsTotal += SeatsByParty[i];
+                }
+                SenateSeatsByParty = new int[SeatsByParty != null ? SeatsByParty.Length : Config.PartyCount()];
+                TotalSenateSeats = 0;
+                DistrictResults = new List<DistrictResult>();
             }
         }
 

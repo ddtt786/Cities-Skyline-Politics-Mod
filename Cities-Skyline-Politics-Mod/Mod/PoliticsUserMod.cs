@@ -22,7 +22,7 @@ namespace PoliticsMod
     // ========================================================================
     public class PoliticsUserMod : ICities.IUserMod
     {
-        public string Name        { get { return L10n.T(L10nKeys.Mod_Name); } }
+        public string Name { get { return L10n.T(L10nKeys.Mod_Name); } }
         public string Description { get { return L10n.T(L10nKeys.Mod_Description); } }
 
         public void OnEnabled()
@@ -30,13 +30,16 @@ namespace PoliticsMod
             Log("OnEnabled");
             ModSettings.Load();
             L10n.Init();
-            HarmonyPatcher.PatchAll();
+            CitiesHarmony.API.HarmonyHelper.DoOnHarmonyReady(() => HarmonyPatcher.PatchAll());
         }
 
         public void OnDisabled()
         {
             Log("OnDisabled");
-            HarmonyPatcher.UnpatchAll();
+            if (CitiesHarmony.API.HarmonyHelper.IsHarmonyInstalled)
+            {
+                HarmonyPatcher.UnpatchAll();
+            }
         }
 
         public void OnSettingsUI(UIHelperBase helper)
@@ -107,7 +110,8 @@ namespace PoliticsMod
 
             // --- Utility buttons ----------------------------------------
             var utilGroup = helper.AddGroup(L10n.T(L10nKeys.Settings_Group_Utilities));
-            utilGroup.AddButton(L10n.T(L10nKeys.Settings_OpenElectionsPanel), () => {
+            utilGroup.AddButton(L10n.T(L10nKeys.Settings_OpenElectionsPanel), () =>
+            {
                 if (PoliticsPanel.Instance != null)
                 {
                     PoliticsPanel.Show();

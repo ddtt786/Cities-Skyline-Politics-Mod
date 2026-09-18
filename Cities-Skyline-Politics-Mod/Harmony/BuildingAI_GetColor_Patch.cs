@@ -25,11 +25,11 @@ namespace PoliticsMod
     public static class BuildingAI_GetColor_Patch
     {
         public static bool Prefix(BuildingAI __instance, ushort buildingID, ref Building data,
-                                  InfoManager.InfoMode infoMode, ref Color __result)
+                                  InfoManager.InfoMode infoMode, InfoManager.SubInfoMode subInfoMode, ref Color __result)
         {
             var st = PoliticsState.Instance;
             if (st == null || !st.Initialized) return true;
-            if (st.Overlay == OverlayMode.Off)  return true;
+            if (st.Overlay == OverlayMode.Off) return true;
 
             // We piggyback on the vanilla "Density" (Population) info view.
             // When our overlay is active, we've switched InfoManager to Density
@@ -55,33 +55,33 @@ namespace PoliticsMod
             switch (st.Overlay)
             {
                 case OverlayMode.Party:
-                {
-                    byte pid = st.DominantPartyByBuilding[buildingID];
-                    if (pid >= PartyCountRef.Value)
                     {
-                        __result = noData;
-                        return false; // no data - show neutral
+                        byte pid = st.DominantPartyByBuilding[buildingID];
+                        if (pid >= PartyCountRef.Value)
+                        {
+                            __result = noData;
+                            return false; // no data - show neutral
+                        }
+                        c = (Color)Config.Parties[pid].Color;
+                        show = true;
+                        break;
                     }
-                    c = (Color)Config.Parties[pid].Color;
-                    show = true;
-                    break;
-                }
                 case OverlayMode.Turnout:
-                {
-                    byte t = st.TurnoutByBuilding[buildingID];
-                    if (t == 0) { __result = noData; return false; }
-                    c = Color.Lerp(new Color(0.7f, 0.1f, 0.1f), new Color(0.1f, 0.8f, 0.1f), t / 100f);
-                    show = true;
-                    break;
-                }
+                    {
+                        byte t = st.TurnoutByBuilding[buildingID];
+                        if (t == 0) { __result = noData; return false; }
+                        c = Color.Lerp(new Color(0.7f, 0.1f, 0.1f), new Color(0.1f, 0.8f, 0.1f), t / 100f);
+                        show = true;
+                        break;
+                    }
                 case OverlayMode.Satisfaction:
-                {
-                    byte sa = st.SatisfactionByBuilding[buildingID];
-                    if (sa == 0) { __result = noData; return false; }
-                    c = Color.Lerp(new Color(0.7f, 0.1f, 0.1f), new Color(0.2f, 0.7f, 0.9f), sa / 100f);
-                    show = true;
-                    break;
-                }
+                    {
+                        byte sa = st.SatisfactionByBuilding[buildingID];
+                        if (sa == 0) { __result = noData; return false; }
+                        c = Color.Lerp(new Color(0.7f, 0.1f, 0.1f), new Color(0.2f, 0.7f, 0.9f), sa / 100f);
+                        show = true;
+                        break;
+                    }
                 default:
                     return true;
             }

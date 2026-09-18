@@ -29,6 +29,7 @@ namespace PoliticsMod
         // Picked up by RunElection and stored on the ElectionResult.
         private static int[] _lastGrievanceTally;
         private static int[,] _lastAgeTally, _lastEduTally, _lastWealthTally;
+        private static List<DistrictResult> _lastDistrictResults;
 
         // ---- Deficit pressure (right-wing nudge when city is losing money) ----
         // Updated by PoliticsThreading once per in-game week.
@@ -134,9 +135,9 @@ namespace PoliticsMod
             int socialBucket = social < 0f ? 0 : 1;
 
             string[][][] matrix;
-            if (context == "campaign")     matrix = CampaignPools;
+            if (context == "campaign") matrix = CampaignPools;
             else if (context == "victory") matrix = VictoryPools;
-            else                           matrix = DefeatPools;
+            else matrix = DefeatPools;
 
             return matrix[econBucket][socialBucket];
         }
@@ -342,24 +343,62 @@ namespace PoliticsMod
                 return;
             }
 
+            // Fix parliament size for the duration of this term based on current population
+            int pop = CitizenManagerUtil.GetPopulation();
+            int targetSeats = Config.CalculateParliamentSeats(pop);
+            st.ActiveParliamentSeats = targetSeats;
+
             // Allocate seats using largest remainders method
             var finalShares = (float[])st.CurrentSupport.Clone();
-            AllocateSeats(finalShares, Config.ParliamentSeats, out st.CurrentSeats);
+            AllocateSeats(finalShares, targetSeats, out st.CurrentSeats);
+
+            // Compute Senate seats: 1 seat per administrative district (districtId >= 1)
+            int np = Config.Parties.Length;
+            int[] senateSeats = new int[np];
+            int totalSenateSeats = 0;
+            if (_lastDistrictResults != null)
+            {
+                foreach (var dr in _lastDistrictResults)
+                {
+                    if (dr.DistrictId == 0) continue; // Unzoned area does not get a Senate seat
+                    int bestParty = -1;
+                    int bestVotes = -1;
+                    for (int p = 0; p < np; p++)
+                    {
+                        if (dr.VotesByParty != null && dr.VotesByParty[p] > bestVotes)
+                        {
+                            bestVotes = dr.VotesByParty[p];
+                            bestParty = p;
+                        }
+                    }
+                    dr.SenateWinnerParty = bestParty;
+                    if (bestParty >= 0 && bestParty < np)
+                    {
+                        senateSeats[bestParty]++;
+                        totalSenateSeats++;
+                    }
+                }
+            }
+            st.ActiveSenateSeats = (int[])senateSeats.Clone();
 
             // Build result
             var now = SimulationManager.instance.m_currentGameTime;
             var result = new ElectionResult
             {
-                Year  = now.Year,
+                Year = now.Year,
                 Month = now.Month,
-                SeatsByParty     = (int[])st.CurrentSeats.Clone(),
+                ParliamentSeatsTotal = targetSeats,
+                SeatsByParty = (int[])st.CurrentSeats.Clone(),
                 VoteShareByParty = (float[])finalShares.Clone(),
-                Turnout          = ComputeTurnout(),
+                Turnout = ComputeTurnout(),
+                SenateSeatsByParty = (int[])senateSeats.Clone(),
+                TotalSenateSeats = totalSenateSeats,
+                DistrictResults = _lastDistrictResults != null ? new List<DistrictResult>(_lastDistrictResults) : new List<DistrictResult>(),
                 VotesByGrievance = _lastGrievanceTally != null
                                    ? (int[])_lastGrievanceTally.Clone()
                                    : new int[9],
-                VotesByAgeParty    = _lastAgeTally    != null ? (int[,])_lastAgeTally.Clone()    : null,
-                VotesByEduParty    = _lastEduTally    != null ? (int[,])_lastEduTally.Clone()    : null,
+                VotesByAgeParty = _lastAgeTally != null ? (int[,])_lastAgeTally.Clone() : null,
+                VotesByEduParty = _lastEduTally != null ? (int[,])_lastEduTally.Clone() : null,
                 VotesByWealthParty = _lastWealthTally != null ? (int[,])_lastWealthTally.Clone() : null,
             };
 
@@ -532,19 +571,30 @@ namespace PoliticsMod
             if (bBuf == 0) return 0;
 
             // Per-building tallies (compact - residential buildings only)
-            var perBuildingTally  = new int[bBuf, PartyCountRef.Value];
+            var perBuildingTally = new int[bBuf, PartyCountRef.Value];
             var perBuildingVoters = new int[bBuf];
-            var perBuildingHappy  = new int[bBuf];
-            var overallTally      = new float[PartyCountRef.Value];
+            var perBuildingHappy = new int[bBuf];
+            var overallTally = new float[PartyCountRef.Value];
             int totalSampled = 0;
             // Grievance tally for the current election - indexed by (int)Grievance.
             // Size = 9 matches the Grievance enum (None + 8 concrete values).
             var grievanceTally = new int[9];
             // Demographic cross-tabs
             int _np = Config.Parties.Length;
-            var ageTally    = new int[3, _np];
-            var eduTally    = new int[4, _np];
+            var ageTally = new int[3, _np];
+            var eduTally = new int[4, _np];
             var wealthTally = new int[3, _np];
+
+            // District tallies: 128 max districts.
+            // 0 = unzoned outer city, 1..127 = administrative districts.
+            int maxDistricts = 128;
+            var districtVotesByParty = new int[maxDistricts, _np];
+            var districtTotalVotes = new int[maxDistricts];
+            var districtGrievance = new int[maxDistricts, 9];
+            var districtAge = new int[maxDistricts, 3, _np];
+            var districtEdu = new int[maxDistricts, 4, _np];
+            var districtWealth = new int[maxDistricts, 3, _np];
+            var dm = Singleton<DistrictManager>.instance;
 
             // Walk EVERY residential building and sample its citizen units.
             // This gives ~100% per-building coverage unlike random citizen sampling.
@@ -557,10 +607,18 @@ namespace PoliticsMod
                 if (building.Info == null) continue;
                 if (building.Info.GetService() != ItemClass.Service.Residential) continue;
 
+                byte districtId = 0;
+                try
+                {
+                    districtId = dm.GetDistrict(building.m_position);
+                }
+                catch { districtId = 0; }
+                if (districtId >= maxDistricts) districtId = 0;
+
                 // Walk the citizen-unit linked list for this building.
                 // Up to ~8 per building typically; hard-cap to prevent any runaway.
                 uint unit = building.m_citizenUnits;
-                int  safety = 0;
+                int safety = 0;
                 while (unit != 0u && safety < 256)
                 {
                     safety++;
@@ -568,11 +626,11 @@ namespace PoliticsMod
                     if ((cu.m_flags & CitizenUnit.Flags.Home) != 0)
                     {
                         // Up to 5 citizens per unit
-                        SampleCitizenInUnit(cu.m_citizen0, cm, bm, b, perBuildingTally, perBuildingVoters, perBuildingHappy, overallTally, grievanceTally, ageTally, eduTally, wealthTally, ref totalSampled);
-                        SampleCitizenInUnit(cu.m_citizen1, cm, bm, b, perBuildingTally, perBuildingVoters, perBuildingHappy, overallTally, grievanceTally, ageTally, eduTally, wealthTally, ref totalSampled);
-                        SampleCitizenInUnit(cu.m_citizen2, cm, bm, b, perBuildingTally, perBuildingVoters, perBuildingHappy, overallTally, grievanceTally, ageTally, eduTally, wealthTally, ref totalSampled);
-                        SampleCitizenInUnit(cu.m_citizen3, cm, bm, b, perBuildingTally, perBuildingVoters, perBuildingHappy, overallTally, grievanceTally, ageTally, eduTally, wealthTally, ref totalSampled);
-                        SampleCitizenInUnit(cu.m_citizen4, cm, bm, b, perBuildingTally, perBuildingVoters, perBuildingHappy, overallTally, grievanceTally, ageTally, eduTally, wealthTally, ref totalSampled);
+                        SampleCitizenInUnit(cu.m_citizen0, cm, bm, b, districtId, perBuildingTally, perBuildingVoters, perBuildingHappy, districtVotesByParty, districtTotalVotes, districtGrievance, districtAge, districtEdu, districtWealth, overallTally, grievanceTally, ageTally, eduTally, wealthTally, ref totalSampled);
+                        SampleCitizenInUnit(cu.m_citizen1, cm, bm, b, districtId, perBuildingTally, perBuildingVoters, perBuildingHappy, districtVotesByParty, districtTotalVotes, districtGrievance, districtAge, districtEdu, districtWealth, overallTally, grievanceTally, ageTally, eduTally, wealthTally, ref totalSampled);
+                        SampleCitizenInUnit(cu.m_citizen2, cm, bm, b, districtId, perBuildingTally, perBuildingVoters, perBuildingHappy, districtVotesByParty, districtTotalVotes, districtGrievance, districtAge, districtEdu, districtWealth, overallTally, grievanceTally, ageTally, eduTally, wealthTally, ref totalSampled);
+                        SampleCitizenInUnit(cu.m_citizen3, cm, bm, b, districtId, perBuildingTally, perBuildingVoters, perBuildingHappy, districtVotesByParty, districtTotalVotes, districtGrievance, districtAge, districtEdu, districtWealth, overallTally, grievanceTally, ageTally, eduTally, wealthTally, ref totalSampled);
+                        SampleCitizenInUnit(cu.m_citizen4, cm, bm, b, districtId, perBuildingTally, perBuildingVoters, perBuildingHappy, districtVotesByParty, districtTotalVotes, districtGrievance, districtAge, districtEdu, districtWealth, overallTally, grievanceTally, ageTally, eduTally, wealthTally, ref totalSampled);
                     }
                     unit = cu.m_nextUnit;
                 }
@@ -591,8 +649,8 @@ namespace PoliticsMod
             if (st2.DominantPartyByBuilding == null || st2.DominantPartyByBuilding.Length != bBuf)
             {
                 st2.DominantPartyByBuilding = new byte[bBuf];
-                st2.TurnoutByBuilding       = new byte[bBuf];
-                st2.SatisfactionByBuilding  = new byte[bBuf];
+                st2.TurnoutByBuilding = new byte[bBuf];
+                st2.SatisfactionByBuilding = new byte[bBuf];
             }
             for (int b = 0; b < bBuf; b++)
             {
@@ -613,15 +671,170 @@ namespace PoliticsMod
                 st2.SatisfactionByBuilding[b] = (byte)Mathf.Clamp(voters > 0 ? (perBuildingHappy[b] * 100 / voters) : 0, 0, 100);
             }
             _lastGrievanceTally = grievanceTally;
-            _lastAgeTally       = ageTally;
-            _lastEduTally       = eduTally;
-            _lastWealthTally    = wealthTally;
+            _lastAgeTally = ageTally;
+            _lastEduTally = eduTally;
+            _lastWealthTally = wealthTally;
+
+            // Build per-district results
+            var dResults = new List<DistrictResult>();
+            for (byte d = 0; d < maxDistricts; d++)
+            {
+                if (districtTotalVotes[d] <= 0) continue;
+
+                string name;
+                if (d == 0)
+                {
+                    name = Localization.L10n.T(Localization.L10nKeys.Stats_District_Unzoned);
+                }
+                else
+                {
+                    bool isCreated = false;
+                    try
+                    {
+                        isCreated = (dm.m_districts.m_buffer[d].m_flags & District.Flags.Created) != 0;
+                    }
+                    catch { }
+                    if (!isCreated) continue;
+
+                    try
+                    {
+                        name = dm.GetDistrictName(d);
+                        if (string.IsNullOrEmpty(name)) name = "District " + d;
+                    }
+                    catch { name = "District " + d; }
+                }
+
+                var dr = new DistrictResult
+                {
+                    DistrictId = d,
+                    DistrictName = name,
+                    TotalVotes = districtTotalVotes[d],
+                    VotesByParty = new int[_np],
+                    VoteShareByParty = new float[_np],
+                    VotesByGrievance = new int[9],
+                    VotesByAgeParty = new int[3, _np],
+                    VotesByEduParty = new int[4, _np],
+                    VotesByWealthParty = new int[3, _np]
+                };
+
+                for (int p = 0; p < _np; p++)
+                {
+                    dr.VotesByParty[p] = districtVotesByParty[d, p];
+                    dr.VoteShareByParty[p] = dr.TotalVotes > 0 ? (float)dr.VotesByParty[p] / dr.TotalVotes : 0f;
+                }
+                for (int g = 0; g < 9; g++) dr.VotesByGrievance[g] = districtGrievance[d, g];
+                for (int b = 0; b < 3; b++)
+                    for (int p = 0; p < _np; p++)
+                        dr.VotesByAgeParty[b, p] = districtAge[d, b, p];
+                for (int b = 0; b < 4; b++)
+                    for (int p = 0; p < _np; p++)
+                        dr.VotesByEduParty[b, p] = districtEdu[d, b, p];
+                for (int b = 0; b < 3; b++)
+                    for (int p = 0; p < _np; p++)
+                        dr.VotesByWealthParty[b, p] = districtWealth[d, b, p];
+
+                dResults.Add(dr);
+            }
+            _lastDistrictResults = dResults;
+
             return totalSampled;
         }
 
-        private static void SampleCitizenInUnit(uint citizenId, CitizenManager cm, BuildingManager bm,
+        /// <summary>
+        /// Rebuild building overlay data (dominant party, turnout, satisfaction)
+        /// from resident citizens. Called on level load if overlay data is empty/missing
+        /// but previous elections have taken place.
+        /// </summary>
+        public static void RebuildBuildingOverlayData()
+        {
+            var st = PoliticsState.Instance;
+            if (st == null) return;
+            var bm = Singleton<BuildingManager>.instance;
+            var cm = Singleton<CitizenManager>.instance;
+            if (bm == null || cm == null) return;
+
+            uint bBuf = bm.m_buildings.m_size;
+            if (bBuf == 0) return;
+
+            if (st.DominantPartyByBuilding == null || st.DominantPartyByBuilding.Length != bBuf)
+            {
+                st.DominantPartyByBuilding = new byte[bBuf];
+                st.TurnoutByBuilding = new byte[bBuf];
+                st.SatisfactionByBuilding = new byte[bBuf];
+                for (int i = 0; i < bBuf; i++) st.DominantPartyByBuilding[i] = 255;
+            }
+
+            var perBuildingTally = new int[bBuf, PartyCountRef.Value];
+            var perBuildingVoters = new int[bBuf];
+            var perBuildingHappy = new int[bBuf];
+
+            for (int b = 1; b < bBuf; b++)
+            {
+                var building = bm.m_buildings.m_buffer[b];
+                if ((building.m_flags & Building.Flags.Created) == 0) continue;
+                if (building.Info == null || building.Info.GetService() != ItemClass.Service.Residential) continue;
+
+                uint unit = building.m_citizenUnits;
+                int safety = 0;
+                while (unit != 0u && safety < 256)
+                {
+                    safety++;
+                    var cu = cm.m_units.m_buffer[unit];
+                    if ((cu.m_flags & CitizenUnit.Flags.Home) != 0)
+                    {
+                        SampleCitizenSimple(cu.m_citizen0, cm, bm, b, perBuildingTally, perBuildingVoters, perBuildingHappy);
+                        SampleCitizenSimple(cu.m_citizen1, cm, bm, b, perBuildingTally, perBuildingVoters, perBuildingHappy);
+                        SampleCitizenSimple(cu.m_citizen2, cm, bm, b, perBuildingTally, perBuildingVoters, perBuildingHappy);
+                        SampleCitizenSimple(cu.m_citizen3, cm, bm, b, perBuildingTally, perBuildingVoters, perBuildingHappy);
+                        SampleCitizenSimple(cu.m_citizen4, cm, bm, b, perBuildingTally, perBuildingVoters, perBuildingHappy);
+                    }
+                    unit = cu.m_nextUnit;
+                }
+            }
+
+            for (int b = 0; b < bBuf; b++)
+            {
+                int voters = perBuildingVoters[b];
+                if (voters <= 0) { st.DominantPartyByBuilding[b] = 255; continue; }
+                int best = 0; int bestCt = -1;
+                for (int p = 0; p < PartyCountRef.Value; p++)
+                {
+                    if (perBuildingTally[b, p] > bestCt) { bestCt = perBuildingTally[b, p]; best = p; }
+                }
+                st.DominantPartyByBuilding[b] = (byte)best;
+                var building = bm.m_buildings.m_buffer[b];
+                int residents = BuildingResidentCount(building);
+                st.TurnoutByBuilding[b] = (byte)Mathf.Clamp(residents > 0 ? Math.Min(100, voters * 100 / residents) : 100, 0, 100);
+                st.SatisfactionByBuilding[b] = (byte)Mathf.Clamp(voters > 0 ? (perBuildingHappy[b] * 100 / voters) : 0, 0, 100);
+            }
+
+            HarmonyPatcher.RefreshBuildingColors();
+        }
+
+        private static void SampleCitizenSimple(uint citizenId, CitizenManager cm, BuildingManager bm,
                                                 int buildingId, int[,] perBuildingTally,
+                                                int[] perBuildingVoters, int[] perBuildingHappy)
+        {
+            if (citizenId == 0u) return;
+            var c = cm.m_citizens.m_buffer[citizenId];
+            if ((c.m_flags & Citizen.Flags.Created) == 0) return;
+            if ((c.m_flags & Citizen.Flags.DummyTraffic) != 0) return;
+
+            Grievance reason;
+            int party = DecideVote(ref c, bm, out reason);
+            if (party < 0) return;
+
+            perBuildingTally[buildingId, party]++;
+            perBuildingVoters[buildingId]++;
+            if ((c.m_flags & Citizen.Flags.NeedGoods) == 0) perBuildingHappy[buildingId]++;
+        }
+
+        private static void SampleCitizenInUnit(uint citizenId, CitizenManager cm, BuildingManager bm,
+                                                int buildingId, byte districtId, int[,] perBuildingTally,
                                                 int[] perBuildingVoters, int[] perBuildingHappy,
+                                                int[,] districtVotesByParty, int[] districtTotalVotes,
+                                                int[,] districtGrievance, int[,,] districtAge,
+                                                int[,,] districtEdu, int[,,] districtWealth,
                                                 float[] overallTally, int[] grievanceTally,
                                                 int[,] ageTally, int[,] eduTally, int[,] wealthTally,
                                                 ref int totalSampled)
@@ -639,10 +852,22 @@ namespace PoliticsMod
             perBuildingTally[buildingId, party]++;
             perBuildingVoters[buildingId]++;
             if ((c.m_flags & Citizen.Flags.NeedGoods) == 0) perBuildingHappy[buildingId]++;
+
+            // Per-district tallies
+            if (districtId < 128)
+            {
+                districtVotesByParty[districtId, party]++;
+                districtTotalVotes[districtId]++;
+            }
+
             if (grievanceTally != null)
             {
                 int gi = (int)reason;
-                if (gi >= 0 && gi < grievanceTally.Length) grievanceTally[gi]++;
+                if (gi >= 0 && gi < grievanceTally.Length)
+                {
+                    grievanceTally[gi]++;
+                    if (districtId < 128) districtGrievance[districtId, gi]++;
+                }
             }
 
             // Demographic cross-tabs
@@ -650,22 +875,28 @@ namespace PoliticsMod
             if (ageTally != null && party < np)
             {
                 var age = Citizen.GetAgeGroup(c.m_age);
-                int bucket = (age == Citizen.AgeGroup.Young)  ? 0 :
-                             (age == Citizen.AgeGroup.Adult)  ? 1 :
+                int bucket = (age == Citizen.AgeGroup.Young) ? 0 :
+                             (age == Citizen.AgeGroup.Adult) ? 1 :
                              (age == Citizen.AgeGroup.Senior) ? 2 : -1;
-                if (bucket >= 0) ageTally[bucket, party]++;
+                if (bucket >= 0)
+                {
+                    ageTally[bucket, party]++;
+                    if (districtId < 128) districtAge[districtId, bucket, party]++;
+                }
             }
             if (eduTally != null && party < np)
             {
                 int edu = (int)c.EducationLevel; // 0..3
                 if (edu < 0) edu = 0; if (edu > 3) edu = 3;
                 eduTally[edu, party]++;
+                if (districtId < 128) districtEdu[districtId, edu, party]++;
             }
             if (wealthTally != null && party < np)
             {
                 int w = (int)c.WealthLevel; // 0..2
                 if (w < 0) w = 0; if (w > 2) w = 2;
                 wealthTally[w, party]++;
+                if (districtId < 128) districtWealth[districtId, w, party]++;
             }
 
             totalSampled++;
@@ -705,29 +936,29 @@ namespace PoliticsMod
             if (ageGroup == Citizen.AgeGroup.Child || ageGroup == Citizen.AgeGroup.Teen)
                 return -1;
 
-            int wealth    = (int)c.WealthLevel;
+            int wealth = (int)c.WealthLevel;
             int education = (int)c.EducationLevel;
             bool employed = (c.m_workBuilding != 0);
-            bool sick     = (c.m_flags & Citizen.Flags.Sick) != 0;
+            bool sick = (c.m_flags & Citizen.Flags.Sick) != 0;
 
             // ---- Ideology nudges: build a voter ideology point from traits ----
             float econ = 0f;
             switch (education)
             {
-                case 0: econ += VoterTraits.BiasEduUneducated;     break;
-                case 1: econ += VoterTraits.BiasEduEducated;       break;
-                case 2: econ += VoterTraits.BiasEduWellEducated;   break;
+                case 0: econ += VoterTraits.BiasEduUneducated; break;
+                case 1: econ += VoterTraits.BiasEduEducated; break;
+                case 2: econ += VoterTraits.BiasEduWellEducated; break;
                 default: econ += VoterTraits.BiasEduHighlyEducated; break;
             }
             switch (wealth)
             {
-                case 0: econ += VoterTraits.BiasWealthLow;    break;
+                case 0: econ += VoterTraits.BiasWealthLow; break;
                 case 1: econ += VoterTraits.BiasWealthMedium; break;
-                default: econ += VoterTraits.BiasWealthHigh;   break;
+                default: econ += VoterTraits.BiasWealthHigh; break;
             }
             econ += employed ? VoterTraits.BiasEmployed : VoterTraits.BiasUnemployed;
-            if (ageGroup == Citizen.AgeGroup.Young)       econ += VoterTraits.BiasYoung;
-            else if (ageGroup == Citizen.AgeGroup.Adult)  econ += VoterTraits.BiasAdult;
+            if (ageGroup == Citizen.AgeGroup.Young) econ += VoterTraits.BiasYoung;
+            else if (ageGroup == Citizen.AgeGroup.Adult) econ += VoterTraits.BiasAdult;
             else if (ageGroup == Citizen.AgeGroup.Senior) econ += VoterTraits.BiasSenior;
             if (sick) econ += VoterTraits.BiasSick;
             // Deficit pressure - the city is losing money → voters drift right
@@ -738,14 +969,14 @@ namespace PoliticsMod
             econ = Mathf.Clamp(econ, -1f, 1f);
 
             float ageF = Mathf.Clamp01(c.m_age / 240f);
-            float soc  = Mathf.Clamp(ageF * 1.2f - 0.4f - (education * 0.15f), -1f, 1f);
-            float gov  = Mathf.Clamp((_rng.Next(0, 100) - 50) / 100f, -1f, 1f);
+            float soc = Mathf.Clamp(ageF * 1.2f - 0.4f - (education * 0.15f), -1f, 1f);
+            float gov = Mathf.Clamp((_rng.Next(0, 100) - 50) / 100f, -1f, 1f);
 
             // Small random jitter (half the old VoterNoise magnitude - rest of
             // the randomness lives in the combined-score noise step below).
             econ += ((float)_rng.NextDouble() - 0.5f) * Config.VoterNoise;
-            soc  += ((float)_rng.NextDouble() - 0.5f) * Config.VoterNoise;
-            gov  += ((float)_rng.NextDouble() - 0.5f) * Config.VoterNoise;
+            soc += ((float)_rng.NextDouble() - 0.5f) * Config.VoterNoise;
+            gov += ((float)_rng.NextDouble() - 0.5f) * Config.VoterNoise;
 
             var voterPoint = new Vector3(econ, soc, gov);
 
@@ -776,7 +1007,7 @@ namespace PoliticsMod
                 foreach (var gv in grievances)
                 {
                     float s = Grievances.ScorePartyForGrievance(party, gv.Key);
-                    grievScore  += gv.Value * s;
+                    grievScore += gv.Value * s;
                     grievWeight += gv.Value;
                     if (s > localReasonFit) { localReasonFit = s; localReason = gv.Key; }
                 }
@@ -1079,7 +1310,7 @@ namespace PoliticsMod
             // Pre-compute which parties support or oppose this exact policy
             // by platform, so repeal votes reflect stance explicitly.
             var supporters = new HashSet<int>();
-            var opponents  = new HashSet<int>();
+            var opponents = new HashSet<int>();
             for (int i = 0; i < Config.Parties.Length; i++)
             {
                 var sup = Config.Parties[i].VanillaPolicies;
@@ -1176,7 +1407,7 @@ namespace PoliticsMod
         {
             // Find supporter and opponent parties (by platform).
             var supporters = new List<int>();
-            var opponents  = new HashSet<int>();
+            var opponents = new HashSet<int>();
             for (int i = 0; i < Config.Parties.Length; i++)
             {
                 var sup = Config.Parties[i].VanillaPolicies;
@@ -1221,18 +1452,18 @@ namespace PoliticsMod
                 {
                     // Party explicitly opposes this policy -> votes NO almost
                     // unanimously, even if they're in the coalition.
-                    yesShare     = 0.02f;
+                    yesShare = 0.02f;
                     abstainShare = 0.05f;
                 }
                 else if (supporterSet.Contains(i))
                 {
-                    yesShare     = 0.95f;
+                    yesShare = 0.95f;
                     abstainShare = 0.03f;
                 }
                 else if (coalitionSet.Contains(i))
                 {
                     // Coalition loyalty: mostly vote with the government
-                    yesShare     = 0.80f;
+                    yesShare = 0.80f;
                     abstainShare = 0.10f;
                 }
                 else
@@ -1240,15 +1471,15 @@ namespace PoliticsMod
                     // Opposition: distance-weighted support
                     float dist = (Config.Parties[i].Ideology - supCenter).magnitude;
                     // dist in [0..~3.5]. Map 0 → 0.55 yes, 3.5+ → 0.05 yes.
-                    yesShare     = Mathf.Clamp(0.55f - dist * 0.18f, 0.05f, 0.6f);
+                    yesShare = Mathf.Clamp(0.55f - dist * 0.18f, 0.05f, 0.6f);
                     abstainShare = 0.15f;
                 }
 
-                int partyYes     = Mathf.RoundToInt(seats * yesShare);
+                int partyYes = Mathf.RoundToInt(seats * yesShare);
                 int partyAbstain = Mathf.RoundToInt(seats * abstainShare);
-                int partyNo      = Mathf.Max(0, seats - partyYes - partyAbstain);
-                yes     += partyYes;
-                no      += partyNo;
+                int partyNo = Mathf.Max(0, seats - partyYes - partyAbstain);
+                yes += partyYes;
+                no += partyNo;
                 abstain += partyAbstain;
             }
 
@@ -1264,8 +1495,8 @@ namespace PoliticsMod
                 // Force the tally to squeak through - this is a post-hoc
                 // narrative fit. Keep the enacted fact, adjust numbers.
                 int flip = (no - yes) + 1;
-                no      = Math.Max(0, no - flip);
-                yes     = yes + flip;
+                no = Math.Max(0, no - flip);
+                yes = yes + flip;
                 passedOrFailed = "passes";
             }
 
@@ -1291,13 +1522,13 @@ namespace PoliticsMod
             if (st.CoalitionPartyIds == null || st.CoalitionPartyIds.Count == 0) return;
 
             // Aggregate deltas across the coalition
-            int dRes=0,dCom=0,dInd=0,dOff=0;
-            int dEdu=0,dHea=0,dPol=0,dFire=0,dElec=0,dWater=0,dGar=0,dTrans=0,dBeaut=0,dRoads=0,dIndustry=0;
+            int dRes = 0, dCom = 0, dInd = 0, dOff = 0;
+            int dEdu = 0, dHea = 0, dPol = 0, dFire = 0, dElec = 0, dWater = 0, dGar = 0, dTrans = 0, dBeaut = 0, dRoads = 0, dIndustry = 0;
             foreach (var id in st.CoalitionPartyIds)
             {
                 var m = Config.Parties[id].Modifiers;
-                dRes += m.TaxDeltaRes;  dCom += m.TaxDeltaCom;
-                dInd += m.TaxDeltaInd;  dOff += m.TaxDeltaOff;
+                dRes += m.TaxDeltaRes; dCom += m.TaxDeltaCom;
+                dInd += m.TaxDeltaInd; dOff += m.TaxDeltaOff;
                 dEdu += m.BudgetDeltaEducation;
                 dHea += m.BudgetDeltaHealth;
                 dPol += m.BudgetDeltaPolice;
@@ -1316,18 +1547,18 @@ namespace PoliticsMod
             AddChange(changes, "Residential tax", dRes, 1);
             AddChange(changes, "Commercial tax", dCom, 1);
             AddChange(changes, "Industrial tax", dInd, 1);
-            AddChange(changes, "Office tax",     dOff, 1);
-            AddChange(changes, "Education budget",   dEdu, 5);
-            AddChange(changes, "Healthcare budget",  dHea, 5);
-            AddChange(changes, "Police budget",      dPol, 5);
-            AddChange(changes, "Fire budget",        dFire, 5);
+            AddChange(changes, "Office tax", dOff, 1);
+            AddChange(changes, "Education budget", dEdu, 5);
+            AddChange(changes, "Healthcare budget", dHea, 5);
+            AddChange(changes, "Police budget", dPol, 5);
+            AddChange(changes, "Fire budget", dFire, 5);
             AddChange(changes, "Electricity budget", dElec, 5);
-            AddChange(changes, "Water budget",       dWater, 5);
-            AddChange(changes, "Garbage budget",     dGar, 5);
+            AddChange(changes, "Water budget", dWater, 5);
+            AddChange(changes, "Garbage budget", dGar, 5);
             AddChange(changes, "Public Transport budget", dTrans, 5);
-            AddChange(changes, "Beautification budget",   dBeaut, 5);
-            AddChange(changes, "Roads budget",       dRoads, 5);
-            AddChange(changes, "Industry budget",    dIndustry, 5);
+            AddChange(changes, "Beautification budget", dBeaut, 5);
+            AddChange(changes, "Roads budget", dRoads, 5);
+            AddChange(changes, "Industry budget", dIndustry, 5);
 
             if (changes.Count == 0)
             {
@@ -1403,18 +1634,18 @@ namespace PoliticsMod
             // Known overrides for nicer titles
             switch (raw)
             {
-                case "FreeTransport":    return "provide Free Public Transport";
-                case "Recycling":        return "mandate City-Wide Recycling";
-                case "SmokeDetectors":   return "require Smoke Detectors";
-                case "EducationBoost":   return "fund an Education Boost";
-                case "ExtraInsulation":  return "subsidize Home Insulation";
-                case "BigBusiness":      return "support Big Business Benefits";
-                case "HighTechHousing":  return "incentivize High-Tech Housing";
-                case "DoubleTime":       return "enforce Double Time wages";
-                case "NoHeavy":          return "ban Heavy Traffic downtown";
-                case "OnlyAtNight":      return "permit Night-Only Operations";
-                case "OldTown":          return "protect the Old Town Heritage";
-                case "HeavyTrafficBan":  return "ban Heavy Traffic citywide";
+                case "FreeTransport": return "provide Free Public Transport";
+                case "Recycling": return "mandate City-Wide Recycling";
+                case "SmokeDetectors": return "require Smoke Detectors";
+                case "EducationBoost": return "fund an Education Boost";
+                case "ExtraInsulation": return "subsidize Home Insulation";
+                case "BigBusiness": return "support Big Business Benefits";
+                case "HighTechHousing": return "incentivize High-Tech Housing";
+                case "DoubleTime": return "enforce Double Time wages";
+                case "NoHeavy": return "ban Heavy Traffic downtown";
+                case "OnlyAtNight": return "permit Night-Only Operations";
+                case "OldTown": return "protect the Old Town Heritage";
+                case "HeavyTrafficBan": return "ban Heavy Traffic citywide";
             }
             // Fallback: insert spaces before capitals (camelCase → "Camel Case")
             var sb = new StringBuilder();
@@ -1439,13 +1670,13 @@ namespace PoliticsMod
                 ", coalition=" + st.CoalitionPartyIds.Count + " parties");
 
             // Aggregate modifier deltas across coalition parties.
-            int dRes=0,dCom=0,dInd=0,dOff=0;
-            int dEdu=0,dHea=0,dPol=0,dFire=0,dElec=0,dWater=0,dGar=0,dTrans=0,dBeaut=0,dRoads=0,dIndustry=0;
+            int dRes = 0, dCom = 0, dInd = 0, dOff = 0;
+            int dEdu = 0, dHea = 0, dPol = 0, dFire = 0, dElec = 0, dWater = 0, dGar = 0, dTrans = 0, dBeaut = 0, dRoads = 0, dIndustry = 0;
             foreach (var id in st.CoalitionPartyIds)
             {
                 var m = Config.Parties[id].Modifiers;
-                dRes += m.TaxDeltaRes;  dCom += m.TaxDeltaCom;
-                dInd += m.TaxDeltaInd;  dOff += m.TaxDeltaOff;
+                dRes += m.TaxDeltaRes; dCom += m.TaxDeltaCom;
+                dInd += m.TaxDeltaInd; dOff += m.TaxDeltaOff;
                 dEdu += m.BudgetDeltaEducation;
                 dHea += m.BudgetDeltaHealth;
                 dPol += m.BudgetDeltaPolice;
@@ -1463,25 +1694,25 @@ namespace PoliticsMod
             try
             {
                 // Taxes
-                AdjustTax(em, ItemClass.Service.Residential,  ItemClass.SubService.ResidentialLow,  dRes * sign);
-                AdjustTax(em, ItemClass.Service.Residential,  ItemClass.SubService.ResidentialHigh, dRes * sign);
-                AdjustTax(em, ItemClass.Service.Commercial,   ItemClass.SubService.CommercialLow,   dCom * sign);
-                AdjustTax(em, ItemClass.Service.Commercial,   ItemClass.SubService.CommercialHigh,  dCom * sign);
-                AdjustTax(em, ItemClass.Service.Industrial,   ItemClass.SubService.None,            dInd * sign);
-                AdjustTax(em, ItemClass.Service.Office,       ItemClass.SubService.None,            dOff * sign);
+                AdjustTax(em, ItemClass.Service.Residential, ItemClass.SubService.ResidentialLow, dRes * sign);
+                AdjustTax(em, ItemClass.Service.Residential, ItemClass.SubService.ResidentialHigh, dRes * sign);
+                AdjustTax(em, ItemClass.Service.Commercial, ItemClass.SubService.CommercialLow, dCom * sign);
+                AdjustTax(em, ItemClass.Service.Commercial, ItemClass.SubService.CommercialHigh, dCom * sign);
+                AdjustTax(em, ItemClass.Service.Industrial, ItemClass.SubService.None, dInd * sign);
+                AdjustTax(em, ItemClass.Service.Office, ItemClass.SubService.None, dOff * sign);
 
                 // Budgets (full city services coverage)
-                AdjustBudget(em, ItemClass.Service.Education,        dEdu     * sign);
-                AdjustBudget(em, ItemClass.Service.HealthCare,       dHea     * sign);
-                AdjustBudget(em, ItemClass.Service.PoliceDepartment, dPol     * sign);
-                AdjustBudget(em, ItemClass.Service.FireDepartment,   dFire    * sign);
-                AdjustBudget(em, ItemClass.Service.Electricity,      dElec    * sign);
-                AdjustBudget(em, ItemClass.Service.Water,            dWater   * sign);
-                AdjustBudget(em, ItemClass.Service.Garbage,          dGar     * sign);
-                AdjustBudget(em, ItemClass.Service.PublicTransport,  dTrans   * sign);
-                AdjustBudget(em, ItemClass.Service.Beautification,   dBeaut   * sign);
-                AdjustBudget(em, ItemClass.Service.Road,             dRoads   * sign);
-                AdjustBudget(em, ItemClass.Service.Industrial,       dIndustry* sign);
+                AdjustBudget(em, ItemClass.Service.Education, dEdu * sign);
+                AdjustBudget(em, ItemClass.Service.HealthCare, dHea * sign);
+                AdjustBudget(em, ItemClass.Service.PoliceDepartment, dPol * sign);
+                AdjustBudget(em, ItemClass.Service.FireDepartment, dFire * sign);
+                AdjustBudget(em, ItemClass.Service.Electricity, dElec * sign);
+                AdjustBudget(em, ItemClass.Service.Water, dWater * sign);
+                AdjustBudget(em, ItemClass.Service.Garbage, dGar * sign);
+                AdjustBudget(em, ItemClass.Service.PublicTransport, dTrans * sign);
+                AdjustBudget(em, ItemClass.Service.Beautification, dBeaut * sign);
+                AdjustBudget(em, ItemClass.Service.Road, dRoads * sign);
+                AdjustBudget(em, ItemClass.Service.Industrial, dIndustry * sign);
             }
             catch (Exception e)
             {
@@ -1613,7 +1844,8 @@ namespace PoliticsMod
         }
 
         /// <summary>Post one right-wing-leaning citizen chirp about the deficit.</summary>
-        public static void PostRandomCitizenDeficitChirp()        {
+        public static void PostRandomCitizenDeficitChirp()
+        {
             // Pick a right-wing party for the hashtag.
             int rightPartyId = -1;
             float bestX = float.MinValue;

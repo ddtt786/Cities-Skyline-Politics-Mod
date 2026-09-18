@@ -101,6 +101,7 @@ namespace PoliticsMod.Localization
         private static void RegisterAll()
         {
             Register(Languages.En.Build());
+            Register(Languages.Ko.Build());
             Register(Languages.Zh.Build());
             Register(Languages.Ja.Build());
             Register(Languages.Pt.Build());
