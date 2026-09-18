@@ -29,138 +29,154 @@ namespace PoliticsMod
         // When paused, m_currentGameTime stops advancing, so we re-baseline
         // on resume to avoid a huge jump.
         private double _lastGameDays = -1.0;
-        private bool _haveBaseline   = false;
+        private bool _haveBaseline = false;
         private float _daysSinceDeficitCheck = 0f;
 
         public override void OnUpdate(float realTimeDelta, float simulationTimeDelta)
         {
-            var st = PoliticsState.Instance;
-            if (st == null || !st.Initialized) return;
-
-            var simMgr = SimulationManager.instance;
-            if (simMgr == null) return;
-
-            // Respect pause
-            if (simMgr.SimulationPaused)
-            {
-                _haveBaseline = false; // re-baseline on resume
-                return;
-            }
-
-            // Current in-game time expressed as a fractional day count.
-            double nowDays;
             try
             {
-                nowDays = simMgr.m_currentGameTime.Ticks / (double)TimeSpan.TicksPerDay;
-            }
-            catch
-            {
-                return;
-            }
+                var st = PoliticsState.Instance;
+                if (st == null || !st.Initialized) return;
 
-            if (!_haveBaseline)
-            {
-                _lastGameDays = nowDays;
-                _haveBaseline = true;
-                return;
-            }
+                var simMgr = SimulationManager.instance;
+                if (simMgr == null) return;
 
-            double delta = nowDays - _lastGameDays;
-            _lastGameDays = nowDays;
-
-            // Guard against negatives (e.g., scenario reset) and huge spikes
-            // (e.g., save loading mid-frame).
-            if (delta <= 0 || delta > 30) return;
-
-            float dayDelta = (float)delta;
-
-            // ---- Daily opinion poll ----
-            // We fire one poll per distinct in-game day, so fractional-day
-            // ticks don't spam samples. The day number comes from the
-            // current game time, rounded down.
-            int dayToday = (int)nowDays;
-            if (OpinionPolling.LastPolledDay != dayToday)
-            {
-                try { OpinionPolling.RunDailyPoll(dayToday); }
-                catch (Exception ex) { PoliticsUserMod.Log("Poll failed: " + ex.Message); }
-            }
-
-            // Population gate (0 = off)
-            if (Config.MinPopulationForElections > 0 &&
-                CitizenManagerUtil.GetPopulation() < Config.MinPopulationForElections)
-            {
-                st.Phase = ElectionPhase.Idle;
-                return;
-            }
-
-            // Handle failed-cooldown
-            if (st.Phase == ElectionPhase.Failed)
-            {
-                st.FailedCooldownRemaining -= dayDelta;
-                if (st.FailedCooldownRemaining <= 0f)
+                // Respect pause
+                if (simMgr.SimulationPaused)
                 {
-                    st.FailedCooldownRemaining = 0f;
-                    st.Phase = ElectionPhase.Idle;
-                    st.DaysSinceLastElection = RuntimeConfig.TermLengthDays; // trigger campaign soon
+                    _haveBaseline = false; // re-baseline on resume
+                    return;
                 }
-                return;
-            }
 
-            st.DaysSinceLastElection += dayDelta;
-
-            // ---- Weekly deficit check + deficit-chirp pacing ----
-            ElectionEngine.DaysSinceLastDeficitChirp += dayDelta;
-            _daysSinceDeficitCheck += dayDelta;
-            if (_daysSinceDeficitCheck >= 7f)
-            {
-                _daysSinceDeficitCheck = 0f;
+                // Current in-game time expressed as a fractional day count.
+                double nowDays;
                 try
                 {
-                    var em = Singleton<EconomyManager>.instance;
-                    long cash = em.LastCashAmount;
-                    long incomePerWeek = cash - (ElectionEngine.LastCashSeen == long.MinValue
-                                                 ? cash : ElectionEngine.LastCashSeen);
-                    ElectionEngine.LastCashSeen = cash;
-                    if (ElectionEngine.LastCashSeen != long.MinValue && incomePerWeek < 0)
-                    {
-                        ElectionEngine.DeficitWeeks++;
-                    }
-                    else
-                    {
-                        ElectionEngine.DeficitWeeks = 0;
-                    }
+                    nowDays = simMgr.m_currentGameTime.Ticks / (double)TimeSpan.TicksPerDay;
                 }
-                catch { /* ignore - early frame before managers are ready */ }
-            }
-            // Maybe post a citizen deficit chirp. Multiplier=0 silences the
-            // whole deficit subsystem, including these chirps, so the
-            // "0 = off" tooltip matches reality.
-            if (ElectionEngine.DeficitWeeks > 0 &&
-                RuntimeConfig.DeficitPressureMultiplier > 0f &&
-                ElectionEngine.DaysSinceLastDeficitChirp >= 10f &&
-                !DebugFlags.MinimalChirps)
-            {
-                ElectionEngine.DaysSinceLastDeficitChirp = 0f;
-                ElectionEngine.PostRandomCitizenDeficitChirp();
-            }
-
-            // Start campaign when term is near over
-            if (st.Phase == ElectionPhase.Idle || st.Phase == ElectionPhase.Governing)
-            {
-                if (st.DaysSinceLastElection >= RuntimeConfig.TermLengthDays - RuntimeConfig.CampaignLengthDays)
+                catch
                 {
-                    ElectionEngine.TriggerCampaign(force: false);
+                    return;
+                }
+
+                if (!_haveBaseline)
+                {
+                    _lastGameDays = nowDays;
+                    _haveBaseline = true;
+                    return;
+                }
+
+                double delta = nowDays - _lastGameDays;
+                _lastGameDays = nowDays;
+
+                // Guard against negatives (e.g., scenario reset) and huge spikes
+                // (e.g., save loading mid-frame).
+                if (delta <= 0 || delta > 30) return;
+
+                float dayDelta = (float)delta;
+
+                // ---- Daily opinion poll ----
+                // We fire one poll per distinct in-game day, so fractional-day
+                // ticks don't spam samples. The day number comes from the
+                // current game time, rounded down.
+                int dayToday = (int)nowDays;
+                if (OpinionPolling.LastPolledDay != dayToday)
+                {
+                    try { OpinionPolling.RunDailyPoll(dayToday); }
+                    catch (Exception ex) { PoliticsUserMod.Log("Poll failed: " + ex.Message); }
+                }
+
+                // Population gate (0 = off)
+                if (Config.MinPopulationForElections > 0 &&
+                    CitizenManagerUtil.GetPopulation() < Config.MinPopulationForElections)
+                {
+                    st.Phase = ElectionPhase.Idle;
+                    return;
+                }
+
+                // Handle failed-cooldown
+                if (st.Phase == ElectionPhase.Failed)
+                {
+                    st.FailedCooldownRemaining -= dayDelta;
+                    if (st.FailedCooldownRemaining <= 0f)
+                    {
+                        st.FailedCooldownRemaining = 0f;
+                        st.Phase = ElectionPhase.Idle;
+                        st.DaysSinceLastElection = RuntimeConfig.TermLengthDays; // trigger campaign soon
+                    }
+                    return;
+                }
+
+                st.DaysSinceLastElection += dayDelta;
+
+                // ---- Weekly deficit check + deficit-chirp pacing ----
+                ElectionEngine.DaysSinceLastDeficitChirp += dayDelta;
+                _daysSinceDeficitCheck += dayDelta;
+                if (_daysSinceDeficitCheck >= 7f)
+                {
+                    _daysSinceDeficitCheck = 0f;
+                    try
+                    {
+                        var em = Singleton<EconomyManager>.instance;
+                        if (em != null)
+                        {
+                            long cash = em.LastCashAmount;
+                            long incomePerWeek = cash - (ElectionEngine.LastCashSeen == long.MinValue
+                                                         ? cash : ElectionEngine.LastCashSeen);
+                            ElectionEngine.LastCashSeen = cash;
+                            if (ElectionEngine.LastCashSeen != long.MinValue && incomePerWeek < 0)
+                            {
+                                ElectionEngine.DeficitWeeks++;
+                            }
+                            else
+                            {
+                                ElectionEngine.DeficitWeeks = 0;
+                            }
+                        }
+                    }
+                    catch { /* ignore - early frame before managers are ready */ }
+                }
+                // Maybe post a citizen deficit chirp. Multiplier=0 silences the
+                // whole deficit subsystem, including these chirps, so the
+                // "0 = off" tooltip matches reality.
+                if (ElectionEngine.DeficitWeeks > 0 &&
+                    RuntimeConfig.DeficitPressureMultiplier > 0f &&
+                    ElectionEngine.DaysSinceLastDeficitChirp >= 10f &&
+                    !DebugFlags.MinimalChirps)
+                {
+                    ElectionEngine.DaysSinceLastDeficitChirp = 0f;
+                    try { ElectionEngine.PostRandomCitizenDeficitChirp(); }
+                    catch (Exception ex) { PoliticsUserMod.Log("Deficit chirp failed: " + ex.Message); }
+                }
+
+                // Start campaign when term is near over
+                if (st.Phase == ElectionPhase.Idle || st.Phase == ElectionPhase.Governing)
+                {
+                    if (st.DaysSinceLastElection >= RuntimeConfig.TermLengthDays - RuntimeConfig.CampaignLengthDays)
+                    {
+                        try { ElectionEngine.TriggerCampaign(force: false); }
+                        catch (Exception ex) { PoliticsUserMod.Log("TriggerCampaign failed: " + ex); }
+                    }
+                }
+
+                if (st.Phase == ElectionPhase.Campaign)
+                {
+                    st.DaysSinceCampaignStart += dayDelta;
+                    try { ElectionEngine.DriftCampaign(dayDelta); }
+                    catch (Exception ex) { PoliticsUserMod.Log("DriftCampaign failed: " + ex); }
+
+                    if (st.DaysSinceCampaignStart >= RuntimeConfig.CampaignLengthDays)
+                    {
+                        try { ElectionEngine.RunElection(); }
+                        catch (Exception ex) { PoliticsUserMod.Log("RunElection failed: " + ex); }
+                    }
                 }
             }
-
-            if (st.Phase == ElectionPhase.Campaign)
+            catch (Exception ex)
             {
-                st.DaysSinceCampaignStart += dayDelta;
-                ElectionEngine.DriftCampaign(dayDelta);
-                if (st.DaysSinceCampaignStart >= RuntimeConfig.CampaignLengthDays)
-                {
-                    ElectionEngine.RunElection();
-                }
+                // Top-level guard prevents any crash popup in simulation thread
+                PoliticsUserMod.Log("PoliticsThreading.OnUpdate caught exception: " + ex.Message);
             }
         }
     }

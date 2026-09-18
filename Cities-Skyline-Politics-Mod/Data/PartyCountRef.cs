@@ -18,15 +18,13 @@ namespace PoliticsMod
 
     public static class ConfigEx
     {
-        public static int PartyCount() { return Config.Parties.Length; }
+        public static int PartyCount() { return Config.Parties != null ? Config.Parties.Length : 0; }
     }
-
-
 
     // Hack: C# 3.5 doesn't allow calling Config.Parties.Length in a const context
     // for ElectionResult's array init, so we route through this helper.
     public static class PartyCountRef
     {
-        public static int Value { get { return Config.Parties.Length; } }
+        public static int Value { get { return Config.Parties != null ? Config.Parties.Length : 0; } }
     }
 }

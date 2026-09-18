@@ -66,14 +66,24 @@ namespace PoliticsMod
             get
             {
                 if (CoalitionPartyIds == null || CoalitionPartyIds.Count == 0) return null;
-                int best = CoalitionPartyIds[0];
-                int bestSeats = CurrentSeats[best];
-                for (int i = 1; i < CoalitionPartyIds.Count; i++)
+                var parties = Config.Parties;
+                if (parties == null || parties.Length == 0) return null;
+
+                int best = -1;
+                int bestSeats = -1;
+                for (int i = 0; i < CoalitionPartyIds.Count; i++)
                 {
                     int p = CoalitionPartyIds[i];
-                    if (CurrentSeats[p] > bestSeats) { best = p; bestSeats = CurrentSeats[p]; }
+                    if (p < 0 || p >= parties.Length) continue;
+                    int s = (CurrentSeats != null && p < CurrentSeats.Length) ? CurrentSeats[p] : 0;
+                    if (s > bestSeats)
+                    {
+                        best = p;
+                        bestSeats = s;
+                    }
                 }
-                return Config.Parties[best];
+                if (best >= 0 && best < parties.Length) return parties[best];
+                return null;
             }
         }
     }

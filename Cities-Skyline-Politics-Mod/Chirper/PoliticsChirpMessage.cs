@@ -25,7 +25,7 @@ namespace PoliticsMod
     {
         private string _sender;
         private string _message;
-        private uint   _id;
+        private uint _id;
 
         // Parameterless constructor required for deserialization.
         public PoliticsChirpMessage() { }
@@ -60,8 +60,8 @@ namespace PoliticsMod
 
         public override void Deserialize(ColossalFramework.IO.DataSerializer s)
         {
-            _sender  = s.ReadSharedString();
-            _id      = s.ReadUInt32();
+            _sender = s.ReadSharedString();
+            _id = s.ReadUInt32();
             _message = s.ReadSharedString();
         }
 
@@ -85,14 +85,14 @@ namespace PoliticsMod
     public class PoliticsTransientChirp : ICities.IChirperMessage
     {
         public string senderName { get; private set; }
-        public string text       { get; private set; }
-        public uint   senderID   { get; private set; }
+        public string text { get; private set; }
+        public uint senderID { get; private set; }
 
         public PoliticsTransientChirp(string sender, string message, uint id)
         {
             senderName = sender ?? "";
-            text       = message ?? "";
-            senderID   = id;
+            text = message ?? "";
+            senderID = id;
         }
     }
 }

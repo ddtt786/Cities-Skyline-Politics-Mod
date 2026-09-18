@@ -57,6 +57,7 @@ namespace PoliticsMod
 
         private int _selectedHistoryIndex = 0;   // 0 = latest election
         private int _selectedDistrictIndex = 0;  // 0 = City-Wide
+        private bool _updating = false;
 
         public override void Start()
         {
@@ -113,32 +114,8 @@ namespace PoliticsMod
             dd.itemPadding = new RectOffset(8, 8, 4, 4);
             dd.isInteractive = true;
             dd.canFocus = true;
-            dd.triggerButton = dd;
-
-            // Ensure dropdown is brought to front on click
-            dd.eventClick += (c, p) =>
-            {
-                dd.BringToFront();
-            };
-
-            // Scrollbar for the popup list
-            var ddScrollbar = dd.AddUIComponent<UIScrollbar>();
-            ddScrollbar.width = 10f;
-            ddScrollbar.height = dd.listHeight;
-            ddScrollbar.orientation = UIOrientation.Vertical;
-            ddScrollbar.stepSize = 24f;
-            ddScrollbar.incrementAmount = 48f;
-            var ddTrack = ddScrollbar.AddUIComponent<UISlicedSprite>();
-            ddTrack.relativePosition = Vector3.zero;
-            ddTrack.size = ddScrollbar.size;
-            ddTrack.spriteName = "ScrollbarTrack";
-            ddScrollbar.trackObject = ddTrack;
-            var ddThumb = ddTrack.AddUIComponent<UISlicedSprite>();
-            ddThumb.relativePosition = Vector3.zero;
-            ddThumb.size = new Vector2(10f, 30f);
-            ddThumb.spriteName = "ScrollbarThumb";
-            ddScrollbar.thumbObject = ddThumb;
-            dd.listScrollbar = ddScrollbar;
+            // Note: DO NOT set dd.triggerButton = dd; - UIDropDown already opens when clicked.
+            // Setting triggerButton binds a duplicate click handler that immediately closes the popup!
 
             // Dropdown arrow indicator
             var arrow = dd.AddUIComponent<UISprite>();
@@ -201,6 +178,7 @@ namespace PoliticsMod
             _electionDropdown = CreateDropDown(new Vector2(113, 38), new Vector2(210, 26));
             _electionDropdown.eventSelectedIndexChanged += (c, idx) =>
             {
+                if (_updating) return;
                 if (_selectedHistoryIndex != idx)
                 {
                     _selectedHistoryIndex = idx;
@@ -236,6 +214,7 @@ namespace PoliticsMod
             _districtDropdown = CreateDropDown(new Vector2(458, 38), new Vector2(280, 26));
             _districtDropdown.eventSelectedIndexChanged += (c, idx) =>
             {
+                if (_updating) return;
                 if (_selectedDistrictIndex != idx)
                 {
                     _selectedDistrictIndex = idx;
@@ -332,8 +311,30 @@ namespace PoliticsMod
             {
                 foreach (var dr in r.DistrictResults)
                 {
-                    items.Add(string.Format("{0} ({1})", dr.DistrictName, L10n.T(L10nKeys.Stats_Votes_Suffix, dr.TotalVotes)));
+                    if (dr != null)
+                        items.Add(string.Format("{0} ({1})", dr.DistrictName ?? "District", L10n.T(L10nKeys.Stats_Votes_Suffix, dr.TotalVotes)));
                 }
+            }
+            else
+            {
+                // Fallback: If no district election results recorded yet, list all created city districts
+                try
+                {
+                    var dm = DistrictManager.instance;
+                    if (dm != null && dm.m_districts.m_buffer != null)
+                    {
+                        for (byte d = 1; d < 128; d++)
+                        {
+                            if ((dm.m_districts.m_buffer[d].m_flags & District.Flags.Created) != 0)
+                            {
+                                string dName = dm.GetDistrictName(d);
+                                if (!string.IsNullOrEmpty(dName))
+                                    items.Add(string.Format("{0} (0)", dName));
+                            }
+                        }
+                    }
+                }
+                catch { }
             }
 
             _districtDropdown.items = items.ToArray();
@@ -343,127 +344,148 @@ namespace PoliticsMod
 
         public void Refresh()
         {
-            var st = PoliticsState.Instance;
-            if (_electionDropdown != null)
+            if (_updating) return;
+            try
             {
-                var electionItems = new List<string>();
-                if (st != null && st.History != null && st.History.Count > 0)
+                _updating = true;
+                var st = PoliticsState.Instance;
+                if (_electionDropdown != null)
                 {
-                    for (int i = st.History.Count - 1; i >= 0; i--)
+                    var electionItems = new List<string>();
+                    if (st != null && st.History != null && st.History.Count > 0)
                     {
-                        var res = st.History[i];
-                        electionItems.Add(string.Format(L10n.T(L10nKeys.Stats_Election_Item), i + 1, res.Year, res.Month));
+                        for (int i = st.History.Count - 1; i >= 0; i--)
+                        {
+                            var res = st.History[i];
+                            if (res != null)
+                                electionItems.Add(string.Format(L10n.T(L10nKeys.Stats_Election_Item), i + 1, res.Year, res.Month));
+                        }
                     }
+                    if (electionItems.Count == 0)
+                    {
+                        electionItems.Add(L10n.T(L10nKeys.Stats_NoData_Subtitle));
+                    }
+                    _electionDropdown.items = electionItems.ToArray();
+                    if (_selectedHistoryIndex >= electionItems.Count) _selectedHistoryIndex = 0;
+                    _electionDropdown.selectedIndex = _selectedHistoryIndex;
                 }
-                else
-                {
-                    electionItems.Add(L10n.T(L10nKeys.Stats_NoData_Subtitle));
-                }
-                _electionDropdown.items = electionItems.ToArray();
-                if (_selectedHistoryIndex >= electionItems.Count) _selectedHistoryIndex = 0;
-                _electionDropdown.selectedIndex = _selectedHistoryIndex;
-            }
 
-            UpdateDistrictDropdown();
-            RefreshCharts();
+                UpdateDistrictDropdown();
+                RefreshCharts();
+            }
+            catch (Exception ex)
+            {
+                PoliticsUserMod.Log("ElectionStatsPanel.Refresh caught: " + ex.Message);
+            }
+            finally
+            {
+                _updating = false;
+            }
         }
 
         private void RefreshCharts()
         {
-            if (_chartPanel == null) return;
-            var kids = new List<GameObject>();
-            foreach (Transform t in _chartPanel.transform) kids.Add(t.gameObject);
-            foreach (var g in kids) UnityEngine.Object.Destroy(g);
-
-            var st = PoliticsState.Instance;
-            var r = GetSelectedResult();
-            if (st == null || r == null)
+            try
             {
-                _subtitle.text = L10n.T(L10nKeys.Stats_NoData_Subtitle);
-                var msg = _chartPanel.AddUIComponent<UILabel>();
-                msg.text = L10n.T(L10nKeys.Stats_NoData_Body);
-                msg.textScale = 0.9f;
-                msg.autoSize = false;
-                msg.size = new Vector2(_chartPanel.width - 20f, 180f);
-                msg.relativePosition = new Vector3(10f, 40f);
-                msg.wordWrap = true;
-                msg.textColor = new Color32(220, 220, 225, 255);
-                return;
-            }
+                if (_chartPanel == null) return;
+                var kids = new List<GameObject>();
+                foreach (Transform t in _chartPanel.transform) kids.Add(t.gameObject);
+                foreach (var g in kids) UnityEngine.Object.Destroy(g);
 
-            var dr = GetSelectedDistrict(r);
-            int total = 0;
-            int[] tally;
-            int[,] ageData;
-            int[,] eduData;
-            int[,] wealthData;
+                var st = PoliticsState.Instance;
+                var r = GetSelectedResult();
+                if (st == null || r == null)
+                {
+                    _subtitle.text = L10n.T(L10nKeys.Stats_NoData_Subtitle);
+                    var msg = _chartPanel.AddUIComponent<UILabel>();
+                    msg.text = L10n.T(L10nKeys.Stats_NoData_Body);
+                    msg.textScale = 0.9f;
+                    msg.autoSize = false;
+                    msg.size = new Vector2(_chartPanel.width - 20f, 180f);
+                    msg.relativePosition = new Vector3(10f, 40f);
+                    msg.wordWrap = true;
+                    msg.textColor = new Color32(220, 220, 225, 255);
+                    return;
+                }
 
-            if (dr != null)
-            {
-                total = dr.TotalVotes;
-                _subtitle.text = string.Format("{0} - [{1}] {2}",
-                    string.Format(L10n.T(L10nKeys.Stats_Election_Item), (_selectedHistoryIndex >= 0 && st.History != null ? (st.History.Count - _selectedHistoryIndex) : 1), r.Year, r.Month),
-                    dr.DistrictName,
-                    L10n.T(L10nKeys.Stats_Votes_Suffix, total));
-                tally = dr.VotesByGrievance ?? new int[9];
-                ageData = dr.VotesByAgeParty;
-                eduData = dr.VotesByEduParty;
-                wealthData = dr.VotesByWealthParty;
-            }
-            else
-            {
-                tally = r.VotesByGrievance ?? new int[9];
-                for (int i = 0; i < tally.Length; i++) total += tally[i];
-                _subtitle.text = L10n.T(L10nKeys.Stats_Subtitle,
-                    r.Year, r.Month, total, (int)(r.Turnout * 100));
-                ageData = r.VotesByAgeParty;
-                eduData = r.VotesByEduParty;
-                wealthData = r.VotesByWealthParty;
-            }
+                var dr = GetSelectedDistrict(r);
+                int total = 0;
+                int[] tally;
+                int[,] ageData;
+                int[,] eduData;
+                int[,] wealthData;
 
-            float y = 0f;
+                if (dr != null)
+                {
+                    total = dr.TotalVotes;
+                    _subtitle.text = string.Format("{0} - [{1}] {2}",
+                        string.Format(L10n.T(L10nKeys.Stats_Election_Item), (_selectedHistoryIndex >= 0 && st.History != null ? (st.History.Count - _selectedHistoryIndex) : 1), r.Year, r.Month),
+                        dr.DistrictName,
+                        L10n.T(L10nKeys.Stats_Votes_Suffix, total));
+                    tally = dr.VotesByGrievance ?? new int[9];
+                    ageData = dr.VotesByAgeParty;
+                    eduData = dr.VotesByEduParty;
+                    wealthData = dr.VotesByWealthParty;
+                }
+                else
+                {
+                    tally = r.VotesByGrievance ?? new int[9];
+                    for (int i = 0; i < tally.Length; i++) total += tally[i];
+                    _subtitle.text = L10n.T(L10nKeys.Stats_Subtitle,
+                        r.Year, r.Month, total, (int)(r.Turnout * 100));
+                    ageData = r.VotesByAgeParty;
+                    eduData = r.VotesByEduParty;
+                    wealthData = r.VotesByWealthParty;
+                }
 
-            // 1. Shared party legend
-            y = DrawPartyLegend(y);
+                float y = 0f;
 
-            // 2. Senate & Election summary
-            if (dr == null)
-            {
-                y = DrawSenateSummary(y, r);
-            }
-            else
-            {
-                y = DrawDistrictSenateAndResults(y, dr);
-            }
+                // 1. Shared party legend
+                y = DrawPartyLegend(y);
 
-            // 3. Grievance chart
-            y = DrawGrievanceChart(y, r, tally, total);
+                // 2. Senate & Election summary
+                if (dr == null)
+                {
+                    y = DrawSenateSummary(y, r);
+                }
+                else
+                {
+                    y = DrawDistrictSenateAndResults(y, dr);
+                }
 
-            // 4. Demographic stacked bars with enhanced hover tooltips
-            y = DrawStackedChart(y, L10n.T(L10nKeys.Stats_Chart_ByAge),
-                ageData,
-                new[] {
+                // 3. Grievance chart
+                y = DrawGrievanceChart(y, r, tally, total);
+
+                // 4. Demographic stacked bars with enhanced hover tooltips
+                y = DrawStackedChart(y, L10n.T(L10nKeys.Stats_Chart_ByAge),
+                    ageData,
+                    new[] {
                     L10n.T(L10nKeys.Bucket_Age_Young),
                     L10n.T(L10nKeys.Bucket_Age_Adult),
                     L10n.T(L10nKeys.Bucket_Age_Senior)
-                });
+                    });
 
-            y = DrawStackedChart(y, L10n.T(L10nKeys.Stats_Chart_ByEducation),
-                eduData,
-                new[] {
+                y = DrawStackedChart(y, L10n.T(L10nKeys.Stats_Chart_ByEducation),
+                    eduData,
+                    new[] {
                     L10n.T(L10nKeys.Bucket_Edu_Uneducated),
                     L10n.T(L10nKeys.Bucket_Edu_Educated),
                     L10n.T(L10nKeys.Bucket_Edu_WellEducated),
                     L10n.T(L10nKeys.Bucket_Edu_HighlyEducated)
-                });
+                    });
 
-            y = DrawStackedChart(y, L10n.T(L10nKeys.Stats_Chart_ByWealth),
-                wealthData,
-                new[] {
+                y = DrawStackedChart(y, L10n.T(L10nKeys.Stats_Chart_ByWealth),
+                    wealthData,
+                    new[] {
                     L10n.T(L10nKeys.Bucket_Wealth_Low),
                     L10n.T(L10nKeys.Bucket_Wealth_Medium),
                     L10n.T(L10nKeys.Bucket_Wealth_High)
-                });
+                    });
+            }
+            catch (Exception ex)
+            {
+                PoliticsUserMod.Log("ElectionStatsPanel.RefreshCharts caught: " + ex.Message);
+            }
         }
 
         private float DrawPartyLegend(float y)
@@ -475,19 +497,23 @@ namespace PoliticsMod
             y += 20f;
 
             float x = 0f;
-            foreach (var p in Config.Parties)
+            if (Config.Parties != null)
             {
-                var swatch = _chartPanel.AddUIComponent<UIPanel>();
-                swatch.backgroundSprite = "GenericPanel";
-                swatch.color = p.Color;
-                swatch.size = new Vector2(14, 14);
-                swatch.relativePosition = new Vector3(x, y + 2);
+                foreach (var p in Config.Parties)
+                {
+                    if (p == null) continue;
+                    var swatch = _chartPanel.AddUIComponent<UIPanel>();
+                    swatch.backgroundSprite = "GenericPanel";
+                    swatch.color = p.Color;
+                    swatch.size = new Vector2(14, 14);
+                    swatch.relativePosition = new Vector3(x, y + 2);
 
-                var lbl = _chartPanel.AddUIComponent<UILabel>();
-                lbl.textScale = 0.75f;
-                lbl.text = p.ShortName;
-                lbl.relativePosition = new Vector3(x + 18, y + 2);
-                x += 18 + Mathf.Max(40f, p.ShortName.Length * 9f);
+                    var lbl = _chartPanel.AddUIComponent<UILabel>();
+                    lbl.textScale = 0.75f;
+                    lbl.text = p.ShortName ?? "";
+                    lbl.relativePosition = new Vector3(x + 18, y + 2);
+                    x += 18 + Mathf.Max(40f, (p.ShortName != null ? p.ShortName.Length : 4) * 9f);
+                }
             }
 
             return y + 28f;
@@ -508,8 +534,8 @@ namespace PoliticsMod
             box.color = new Color32(35, 38, 45, 200);
 
             var sb = new StringBuilder();
-            sb.Append(string.Format(L10n.T(L10nKeys.Stats_Senate_Summary), r.TotalSenateSeats));
-            if (r.SenateSeatsByParty != null && r.SenateSeatsByParty.Length > 0)
+            sb.Append(string.Format(L10n.T(L10nKeys.Stats_Senate_Summary), r != null ? r.TotalSenateSeats : 0));
+            if (r != null && r.SenateSeatsByParty != null && r.SenateSeatsByParty.Length > 0 && Config.Parties != null)
             {
                 sb.Append("  •  ");
                 bool first = true;
@@ -517,6 +543,7 @@ namespace PoliticsMod
                 {
                     int seats = r.SenateSeatsByParty[i];
                     if (seats <= 0) continue;
+                    if (Config.Parties[i] == null) continue;
                     if (!first) sb.Append(", ");
                     sb.Append(string.Format("{0} {1}", Config.Parties[i].ShortName, string.Format(L10n.T(L10nKeys.Stats_Senate_SeatSuffix), seats)));
                     first = false;
@@ -551,7 +578,7 @@ namespace PoliticsMod
                 bannerLbl.text = L10n.T(L10nKeys.Stats_Senate_NoWinner);
                 bannerLbl.textColor = new Color32(190, 190, 200, 255);
             }
-            else if (dr.SenateWinnerParty >= 0 && dr.SenateWinnerParty < Config.Parties.Length)
+            else if (Config.Parties != null && dr.SenateWinnerParty >= 0 && dr.SenateWinnerParty < Config.Parties.Length && Config.Parties[dr.SenateWinnerParty] != null)
             {
                 var winParty = Config.Parties[dr.SenateWinnerParty];
                 float winShare = (dr.VoteShareByParty != null && dr.SenateWinnerParty < dr.VoteShareByParty.Length)
@@ -559,7 +586,7 @@ namespace PoliticsMod
                 int winVotes = (dr.VotesByParty != null && dr.SenateWinnerParty < dr.VotesByParty.Length)
                     ? dr.VotesByParty[dr.SenateWinnerParty] : 0;
 
-                bannerLbl.text = string.Format(L10n.T(L10nKeys.Stats_Senate_Winner), winParty.FullName, winShare, winVotes);
+                bannerLbl.text = string.Format(L10n.T(L10nKeys.Stats_Senate_Winner), winParty.FullName ?? "", winShare, winVotes);
                 bannerLbl.textColor = Color.Lerp(winParty.Color, Color.white, 0.4f);
             }
             else
@@ -581,11 +608,12 @@ namespace PoliticsMod
             float barStart = 130f;
             float barW = chartW - 220f;
 
-            if (dr.VotesByParty != null)
+            if (dr.VotesByParty != null && Config.Parties != null)
             {
                 for (int p = 0; p < dr.VotesByParty.Length && p < Config.Parties.Length; p++)
                 {
                     var party = Config.Parties[p];
+                    if (party == null) continue;
                     int v = dr.VotesByParty[p];
                     float frac = dr.TotalVotes > 0 ? (float)v / dr.TotalVotes : 0f;
 
@@ -639,6 +667,8 @@ namespace PoliticsMod
             hdr.relativePosition = new Vector3(0, y);
             y += 22f;
 
+            if (tally == null) return y;
+
             string[] labels = new[]
             {
                 L10n.T(L10nKeys.Stats_Grievance_Ideology),
@@ -663,7 +693,7 @@ namespace PoliticsMod
                 new Color32(255, 235, 59, 255),
                 new Color32(156, 204, 101, 255),
             };
-            int rows = Math.Min(labels.Length, tally.Length);
+            int rows = Math.Min(Math.Min(labels.Length, tally.Length), colors.Length);
             float rowH = 22f;
             float chartW = _chartPanel.width - 10f;
             for (int i = 0; i < rows; i++)
@@ -743,9 +773,9 @@ namespace PoliticsMod
 
                 // Build sorted per-party votes for the category tooltip
                 var partyVotes = new List<KeyValuePair<int, int>>();
-                for (int p = 0; p < parties; p++)
+                for (int p = 0; p < parties && p < Config.Parties.Length; p++)
                 {
-                    if (p < Config.Parties.Length)
+                    if (Config.Parties[p] != null)
                         partyVotes.Add(new KeyValuePair<int, int>(p, data[b, p]));
                 }
                 partyVotes.Sort((k1, k2) => k2.Value.CompareTo(k1.Value)); // descending order
@@ -760,7 +790,8 @@ namespace PoliticsMod
                         int p = kvp.Key;
                         int votes = kvp.Value;
                         float pct = (float)votes / total;
-                        sb.AppendLine(string.Format("■ {0}: {1} ({2:P1})", Config.Parties[p].FullName, votes, pct));
+                        if (p < Config.Parties.Length && Config.Parties[p] != null)
+                            sb.AppendLine(string.Format("■ {0}: {1} ({2:P1})", Config.Parties[p].FullName, votes, pct));
                     }
                 }
                 else
@@ -784,9 +815,9 @@ namespace PoliticsMod
                 bg.tooltip = categoryTooltip;
 
                 float xCursor = 0f;
-                for (int p = 0; p < parties; p++)
+                for (int p = 0; p < parties && p < Config.Parties.Length; p++)
                 {
-                    if (p >= Config.Parties.Length) break;
+                    if (Config.Parties[p] == null) continue;
                     if (total <= 0) break;
                     int votes = data[b, p];
                     float frac = votes / (float)total;

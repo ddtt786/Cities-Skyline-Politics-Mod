@@ -178,19 +178,26 @@ namespace PoliticsMod
                     arr[i].Id = i; // enforce contiguous ids
                 }
                 Config.Parties = arr;
-                // Resize per-party arrays on the state to match.
-                int n = arr.Length;
-                if (st.CurrentSeats == null || st.CurrentSeats.Length != n) st.CurrentSeats = ResizeIntArrayInt(st.CurrentSeats, n);
-                if (st.CurrentSupport == null || st.CurrentSupport.Length != n) st.CurrentSupport = ResizeFloatArrayInt(st.CurrentSupport, n);
-                if (st.ApprovalByParty == null || st.ApprovalByParty.Length != n) st.ApprovalByParty = ResizeIntArrayInt(st.ApprovalByParty, n);
-                if (st.CoalitionPartyIds != null) st.CoalitionPartyIds.RemoveAll(id => id < 0 || id >= n);
             }
+
+            // Unconditionally ensure all per-party arrays match the active party count
+            int expectedParties = Config.Parties != null ? Config.Parties.Length : PartyCountRef.Value;
+            if (st.CurrentSeats == null || st.CurrentSeats.Length != expectedParties)
+                st.CurrentSeats = ResizeIntArrayInt(st.CurrentSeats, expectedParties);
+            if (st.CurrentSupport == null || st.CurrentSupport.Length != expectedParties)
+                st.CurrentSupport = ResizeFloatArrayInt(st.CurrentSupport, expectedParties);
+            if (st.ApprovalByParty == null || st.ApprovalByParty.Length != expectedParties)
+                st.ApprovalByParty = ResizeIntArrayInt(st.ApprovalByParty, expectedParties);
+            if (st.ActiveSenateSeats == null || st.ActiveSenateSeats.Length != expectedParties)
+                st.ActiveSenateSeats = ResizeIntArrayInt(st.ActiveSenateSeats, expectedParties);
+            if (st.CoalitionPartyIds != null)
+                st.CoalitionPartyIds.RemoveAll(id => id < 0 || id >= expectedParties);
 
             // v4: restore voter biases
             if (VoterBiases != null && VoterBiases.Length >= 14) ApplyVoterBiases(VoterBiases);
             DebugFlags.MinimalChirps = MinimalChirps;
 
-            if (st.History.Count > 0) st.LastResult = st.History[st.History.Count - 1];
+            if (st.History != null && st.History.Count > 0) st.LastResult = st.History[st.History.Count - 1];
         }
 
         private static int[] ResizeIntArrayInt(int[] src, int len)

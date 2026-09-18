@@ -64,6 +64,12 @@ namespace PoliticsMod.Localization.Languages
             s[L10nKeys.Overlay_Party] = "정당 지지";
             s[L10nKeys.Overlay_Turnout] = "투표율";
             s[L10nKeys.Overlay_Satisfaction] = "만족도";
+            s[L10nKeys.Overlay_NoData] = "데이터 없음";
+            s[L10nKeys.Overlay_Turnout_Low] = "낮은 투표율";
+            s[L10nKeys.Overlay_Turnout_High] = "높은 투표율";
+            s[L10nKeys.Overlay_Satisfaction_Unhappy] = "불만족";
+            s[L10nKeys.Overlay_Satisfaction_Happy] = "만족";
+            s[L10nKeys.Overlay_NoElectionHint] = "선거 기록 없음 - 조기 선거를 실시하세요!";
             s[L10nKeys.InfoButton_Prefix] = "정치: {0}";
 
             // Party editor
@@ -185,6 +191,26 @@ namespace PoliticsMod.Localization.Languages
             s[L10nKeys.Polling_Title] = "일일 여론 조사";
             s[L10nKeys.Polling_NoHistory] = "아직 여론조사 데이터가 없습니다. 매일 샘플이 수집됩니다.";
             s[L10nKeys.Polling_Subtitle] = "일일 여론조사 - 표본 크기 {0}명 - 최근 {1}일간 추이";
+            s[L10nKeys.Polling_Axis_Today] = "오늘";
+            s[L10nKeys.Polling_Axis_DaysAgo] = "-{0}일";
+
+            // Chirper news & bills
+            s[L10nKeys.Chirp_CityNews_Sender] = "도시 뉴스";
+            s[L10nKeys.Chirp_Election_Called] = "선거가 시작되었습니다! 선거 운동은 {0}일간 진행되며, 선거 당일에 투표 결과가 발표됩니다. #도시선거";
+            s[L10nKeys.Chirp_Election_Result] = "{0} 승리! {1}개 정당과 연립 정부를 구성했습니다. 투표율 {2}%. #선거결과";
+            s[L10nKeys.Chirp_Election_Failed] = "연정 협상이 결렬되었습니다. {0}일 후 조기 재선거가 치러집니다. #정국위기";
+            s[L10nKeys.Chirp_Bill_Enacted] = "의회 표결 {0}-{1}(으)로 법안 C-{2} 통과: [{3}] 제정안.{4}";
+            s[L10nKeys.Chirp_Bill_Repealed] = "의회 표결 {0}-{1}(으)로 법안 C-{2} 통과: [{3}] 폐지안.{4}";
+            s[L10nKeys.Chirp_Bill_BudgetTax] = "의회 표결 {0}-{1}(으)로 법안 C-{2} (예산 및 조세) 통과: {3}.{4}";
+            s[L10nKeys.Chirp_Bill_Abstentions] = "  (기권 {0}표)";
+            s[L10nKeys.Chirp_Budget_Raise] = "{0} {1}% 증액";
+            s[L10nKeys.Chirp_Budget_Cut] = "{0} {1}% 삭감";
+            s[L10nKeys.Chirp_Tax_Raise] = "{0} {1}%p 인상";
+            s[L10nKeys.Chirp_Tax_Cut] = "{0} {1}%p 인하";
+            s[L10nKeys.Chirp_And_More] = " (외 {0}건)";
+            s[L10nKeys.Chirp_Toast_Coalition] = "{0}이(가) {1}개 정당과 연립 정부를 구성했습니다.";
+            s[L10nKeys.Chirp_Toast_Failed] = "연정 구성에 실패했습니다. {0}일 후 조기 재선거가 실시됩니다.";
+            s[L10nKeys.Chirp_Toast_Campaign] = "조기 선거가 실시됩니다! 선거 운동은 {0}일간 진행됩니다.";
 
             return new Language("ko", "한국어", s);
         }

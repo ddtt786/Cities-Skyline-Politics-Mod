@@ -10,6 +10,7 @@ using ColossalFramework.Math;
 using ColossalFramework.UI;
 using HarmonyLib;
 using ICities;
+using PoliticsMod.Localization;
 using UnityEngine;
 
 namespace PoliticsMod
@@ -22,7 +23,7 @@ namespace PoliticsMod
     public class PoliticsOverlay : MonoBehaviour
     {
         private Camera _cachedCam;
-        private float  _camCacheTime;
+        private float _camCacheTime;
 
         // Hotkey state -------------------------------------------------------
         // Detecting the panel-toggle hotkey from a plain MonoBehaviour rather
@@ -145,59 +146,64 @@ namespace PoliticsMod
         // the in-progress position in RuntimeConfig and write to ModSettings
         // XML on mouse-up so the final position survives across sessions.
         // ------------------------------------------------------------------
-        private bool    _dragging;
+        private bool _dragging;
         private Vector2 _dragStartMouse;
         private Vector2 _dragStartPanel;
 
         private const float LegendPanelWidth = 230f;
-        private const float DragHandleWidth  = 16f;
+        private const float DragHandleWidth = 16f;
 
         private void OnGUI()
         {
-            var st = PoliticsState.Instance;
-            if (st == null || !st.Initialized) return;
-            if (st.Overlay == OverlayMode.Off) return;
-            if (st.DominantPartyByBuilding == null) return;
-
-            // Harmony now handles per-building tinting via BuildingAI.GetColor patch.
-            // This OnGUI renders the legend (draggable) and a "no data" hint.
-
-            float panelW = LegendPanelWidth;
-            // Row count inside the legend box, excluding the title row:
-            //   Party overlay        -> N parties + 1 "No data"
-            //   Turnout/Satisfaction -> 2 swatches + 1 "No data"
-            int legendRows = st.Overlay == OverlayMode.Party
-                ? PartyCountRef.Value + 1
-                : 3;
-            float panelH = 22f * (legendRows + 1) + 10f;
-
-            // Clamp in case the window was resized since the last save.
-            float px = Mathf.Clamp(RuntimeConfig.OverlayLegendX,
-                0f, Mathf.Max(0f, Screen.width  - panelW));
-            float py = Mathf.Clamp(RuntimeConfig.OverlayLegendY,
-                0f, Mathf.Max(0f, Screen.height - panelH));
-            RuntimeConfig.OverlayLegendX = px;
-            RuntimeConfig.OverlayLegendY = py;
-
-            DrawLegend(st, px, py, panelW, panelH);
-            DrawDragHandle(px, py, panelW, panelH);
-            HandleLegendDrag(px, py, panelW, panelH);
-
-            // "No data" hint floats just above the legend so it moves with it.
-            bool anyData = false;
-            if (st.DominantPartyByBuilding != null)
+            try
             {
-                for (int i = 0; i < st.DominantPartyByBuilding.Length; i++)
+                var st = PoliticsState.Instance;
+                if (st == null || !st.Initialized) return;
+                if (st.Overlay == OverlayMode.Off) return;
+                if (st.DominantPartyByBuilding == null) return;
+
+                // Harmony now handles per-building tinting via BuildingAI.GetColor patch.
+                // This OnGUI renders the legend (draggable) and a "no data" hint.
+
+                float panelW = LegendPanelWidth;
+                int pCount = Config.Parties != null ? Config.Parties.Length : PartyCountRef.Value;
+                int legendRows = st.Overlay == OverlayMode.Party
+                    ? pCount + 1
+                    : 3;
+                float panelH = 22f * (legendRows + 1) + 10f;
+
+                // Clamp in case the window was resized since the last save.
+                float px = Mathf.Clamp(RuntimeConfig.OverlayLegendX,
+                    0f, Mathf.Max(0f, Screen.width - panelW));
+                float py = Mathf.Clamp(RuntimeConfig.OverlayLegendY,
+                    0f, Mathf.Max(0f, Screen.height - panelH));
+                RuntimeConfig.OverlayLegendX = px;
+                RuntimeConfig.OverlayLegendY = py;
+
+                DrawLegend(st, px, py, panelW, panelH);
+                DrawDragHandle(px, py, panelW, panelH);
+                HandleLegendDrag(px, py, panelW, panelH);
+
+                // "No data" hint floats just above the legend so it moves with it.
+                bool anyData = false;
+                if (st.DominantPartyByBuilding != null)
                 {
-                    if (st.DominantPartyByBuilding[i] < PartyCountRef.Value) { anyData = true; break; }
+                    for (int i = 0; i < st.DominantPartyByBuilding.Length; i++)
+                    {
+                        if (st.DominantPartyByBuilding[i] < pCount) { anyData = true; break; }
+                    }
+                }
+                if (!anyData)
+                {
+                    var s = new GUIStyle(GUI.skin.box);
+                    s.normal.textColor = Color.yellow;
+                    GUI.Box(new Rect(px, py - 32f, 260f, 26f),
+                        L10n.T(L10nKeys.Overlay_NoElectionHint), s);
                 }
             }
-            if (!anyData)
+            catch (Exception ex)
             {
-                var s = new GUIStyle(GUI.skin.box);
-                s.normal.textColor = Color.yellow;
-                GUI.Box(new Rect(px, py - 32f, 260f, 26f),
-                    "No election yet - call a snap election!", s);
+                PoliticsUserMod.Log("PoliticsOverlay.OnGUI caught: " + ex.Message);
             }
         }
 
@@ -219,6 +225,17 @@ namespace PoliticsMod
             GUI.color = old;
         }
 
+        private static string LocalizedOverlayName(OverlayMode m)
+        {
+            switch (m)
+            {
+                case OverlayMode.Party: return L10n.T(L10nKeys.Overlay_Party);
+                case OverlayMode.Turnout: return L10n.T(L10nKeys.Overlay_Turnout);
+                case OverlayMode.Satisfaction: return L10n.T(L10nKeys.Overlay_Satisfaction);
+                default: return L10n.T(L10nKeys.Overlay_Off);
+            }
+        }
+
         /// <summary>
         /// Draw the legend box at (px, py). px/py is the top-left of the box
         /// in screen pixels. panelW/panelH are its outer size.
@@ -231,7 +248,8 @@ namespace PoliticsMod
             var s = new GUIStyle(GUI.skin.box);
             s.alignment = TextAnchor.UpperLeft;
             s.normal.textColor = Color.white;
-            GUI.Box(new Rect(px, py, panelW, panelH), "Overlay: " + st.Overlay, s);
+            string title = L10n.T(L10nKeys.Panel_Overlay_Prefix, LocalizedOverlayName(st.Overlay));
+            GUI.Box(new Rect(px, py, panelW, panelH), title, s);
 
             // Content origin: just inside the box, below the header row.
             float cx = px + 5f;
@@ -239,43 +257,42 @@ namespace PoliticsMod
 
             if (st.Overlay == OverlayMode.Party)
             {
-                for (int i = 0; i < PartyCountRef.Value; i++)
+                int pLim = Math.Min(PartyCountRef.Value, Config.Parties != null ? Config.Parties.Length : 0);
+                for (int i = 0; i < pLim; i++)
                 {
                     var p = Config.Parties[i];
+                    if (p == null) continue;
                     GUI.color = p.Color;
                     GUI.DrawTexture(new Rect(cx, cy + i * 22, 12, 12), _dotTex);
                     GUI.color = Color.white;
-                    GUI.Label(new Rect(cx + 20, cy + i * 22 - 4, 200, 20), p.FullName);
+                    GUI.Label(new Rect(cx + 20, cy + i * 22 - 4, 200, 20), p.FullName ?? "");
                 }
-                // "No data" row - same neutral tint BuildingAI_GetColor_Patch
-                // returns for residential buildings that haven't been sampled
-                // yet (built after the last election, or a building with no
-                // voting residents).
-                int noDataRow = PartyCountRef.Value;
+                // "No data" row
+                int noDataRow = pLim;
                 GUI.color = new Color(0.35f, 0.35f, 0.4f, 1f);
                 GUI.DrawTexture(new Rect(cx, cy + noDataRow * 22, 12, 12), _dotTex);
                 GUI.color = Color.white;
-                GUI.Label(new Rect(cx + 20, cy + noDataRow * 22 - 4, 200, 20), "No data");
+                GUI.Label(new Rect(cx + 20, cy + noDataRow * 22 - 4, 200, 20), L10n.T(L10nKeys.Overlay_NoData));
             }
             else if (st.Overlay == OverlayMode.Turnout)
             {
-                GUI.color = Color.red;   GUI.DrawTexture(new Rect(cx, cy, 12, 12), _dotTex);
-                GUI.color = Color.white; GUI.Label(new Rect(cx + 20, cy - 4, 200, 20), "Low turnout");
+                GUI.color = Color.red; GUI.DrawTexture(new Rect(cx, cy, 12, 12), _dotTex);
+                GUI.color = Color.white; GUI.Label(new Rect(cx + 20, cy - 4, 200, 20), L10n.T(L10nKeys.Overlay_Turnout_Low));
                 GUI.color = Color.green; GUI.DrawTexture(new Rect(cx, cy + 22, 12, 12), _dotTex);
-                GUI.color = Color.white; GUI.Label(new Rect(cx + 20, cy + 18, 200, 20), "High turnout");
+                GUI.color = Color.white; GUI.Label(new Rect(cx + 20, cy + 18, 200, 20), L10n.T(L10nKeys.Overlay_Turnout_High));
                 GUI.color = new Color(0.35f, 0.35f, 0.4f, 1f);
                 GUI.DrawTexture(new Rect(cx, cy + 44, 12, 12), _dotTex);
-                GUI.color = Color.white; GUI.Label(new Rect(cx + 20, cy + 40, 200, 20), "No data");
+                GUI.color = Color.white; GUI.Label(new Rect(cx + 20, cy + 40, 200, 20), L10n.T(L10nKeys.Overlay_NoData));
             }
             else if (st.Overlay == OverlayMode.Satisfaction)
             {
-                GUI.color = Color.red;  GUI.DrawTexture(new Rect(cx, cy, 12, 12), _dotTex);
-                GUI.color = Color.white;GUI.Label(new Rect(cx + 20, cy - 4, 200, 20), "Unhappy");
+                GUI.color = Color.red; GUI.DrawTexture(new Rect(cx, cy, 12, 12), _dotTex);
+                GUI.color = Color.white; GUI.Label(new Rect(cx + 20, cy - 4, 200, 20), L10n.T(L10nKeys.Overlay_Satisfaction_Unhappy));
                 GUI.color = Color.cyan; GUI.DrawTexture(new Rect(cx, cy + 22, 12, 12), _dotTex);
-                GUI.color = Color.white;GUI.Label(new Rect(cx + 20, cy + 18, 200, 20), "Happy");
+                GUI.color = Color.white; GUI.Label(new Rect(cx + 20, cy + 18, 200, 20), L10n.T(L10nKeys.Overlay_Satisfaction_Happy));
                 GUI.color = new Color(0.35f, 0.35f, 0.4f, 1f);
                 GUI.DrawTexture(new Rect(cx, cy + 44, 12, 12), _dotTex);
-                GUI.color = Color.white;GUI.Label(new Rect(cx + 20, cy + 40, 200, 20), "No data");
+                GUI.color = Color.white; GUI.Label(new Rect(cx + 20, cy + 40, 200, 20), L10n.T(L10nKeys.Overlay_NoData));
             }
             GUI.color = old;
         }
@@ -294,14 +311,14 @@ namespace PoliticsMod
                 : new Color(0.85f, 0.85f, 0.85f, 0.8f);   // subtle grey otherwise
 
             float rightCol = px + panelW - 6f;
-            float leftCol  = px + panelW - 11f;
-            float centerY  = py + panelH / 2f;
-            float dotSize  = 3f;
+            float leftCol = px + panelW - 11f;
+            float centerY = py + panelH / 2f;
+            float dotSize = 3f;
             // 3 rows, spaced 6px apart, vertically centered.
             for (int row = 0; row < 3; row++)
             {
                 float y = centerY - 7f + row * 6f;
-                GUI.DrawTexture(new Rect(leftCol,  y, dotSize, dotSize), _dotTex);
+                GUI.DrawTexture(new Rect(leftCol, y, dotSize, dotSize), _dotTex);
                 GUI.DrawTexture(new Rect(rightCol, y, dotSize, dotSize), _dotTex);
             }
             GUI.color = old;
@@ -336,7 +353,7 @@ namespace PoliticsMod
             {
                 Vector2 delta = e.mousePosition - _dragStartMouse;
                 float newX = Mathf.Clamp(_dragStartPanel.x + delta.x,
-                    0f, Mathf.Max(0f, Screen.width  - panelW));
+                    0f, Mathf.Max(0f, Screen.width - panelW));
                 float newY = Mathf.Clamp(_dragStartPanel.y + delta.y,
                     0f, Mathf.Max(0f, Screen.height - panelH));
                 RuntimeConfig.OverlayLegendX = newX;

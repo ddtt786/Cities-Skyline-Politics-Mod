@@ -60,6 +60,12 @@ namespace PoliticsMod.Localization
         public const string Overlay_Party = "Overlay_Party";
         public const string Overlay_Turnout = "Overlay_Turnout";
         public const string Overlay_Satisfaction = "Overlay_Satisfaction";
+        public const string Overlay_NoData = "Overlay_NoData";
+        public const string Overlay_Turnout_Low = "Overlay_Turnout_Low";
+        public const string Overlay_Turnout_High = "Overlay_Turnout_High";
+        public const string Overlay_Satisfaction_Unhappy = "Overlay_Satisfaction_Unhappy";
+        public const string Overlay_Satisfaction_Happy = "Overlay_Satisfaction_Happy";
+        public const string Overlay_NoElectionHint = "Overlay_NoElectionHint";
 
         // Info-view button prefix ("Politics: X") - distinct from the main
         // panel's "Overlay: X" prefix.
@@ -187,5 +193,23 @@ namespace PoliticsMod.Localization
         // Info-view button
         public const string InfoButton_Tooltip = "InfoButton_Tooltip";
         public const string InfoButton_DragTooltip = "InfoButton_DragTooltip";
+
+        // Chirper news & bills
+        public const string Chirp_CityNews_Sender = "Chirp_CityNews_Sender";
+        public const string Chirp_Election_Called = "Chirp_Election_Called";
+        public const string Chirp_Election_Result = "Chirp_Election_Result";
+        public const string Chirp_Election_Failed = "Chirp_Election_Failed";
+        public const string Chirp_Bill_Enacted = "Chirp_Bill_Enacted";
+        public const string Chirp_Bill_Repealed = "Chirp_Bill_Repealed";
+        public const string Chirp_Bill_BudgetTax = "Chirp_Bill_BudgetTax";
+        public const string Chirp_Bill_Abstentions = "Chirp_Bill_Abstentions";
+        public const string Chirp_Budget_Raise = "Chirp_Budget_Raise";
+        public const string Chirp_Budget_Cut = "Chirp_Budget_Cut";
+        public const string Chirp_Tax_Raise = "Chirp_Tax_Raise";
+        public const string Chirp_Tax_Cut = "Chirp_Tax_Cut";
+        public const string Chirp_And_More = "Chirp_And_More";
+        public const string Chirp_Toast_Coalition = "Chirp_Toast_Coalition";
+        public const string Chirp_Toast_Failed = "Chirp_Toast_Failed";
+        public const string Chirp_Toast_Campaign = "Chirp_Toast_Campaign";
     }
 }

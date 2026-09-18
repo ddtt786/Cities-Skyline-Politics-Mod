@@ -36,13 +36,20 @@ namespace PoliticsMod
 
         public void SetData(int[] seatsByParty, IEnumerable<int> coalitionPartyIds, int total)
         {
-            _seats = seatsByParty;
-            _totalSeats = Math.Max(1, total);
-            _coalition.Clear();
-            if (coalitionPartyIds != null)
-                foreach (var id in coalitionPartyIds) _coalition.Add(id);
-            Recompute();
-            Invalidate();
+            try
+            {
+                _seats = seatsByParty ?? new int[0];
+                _totalSeats = Math.Max(1, total);
+                _coalition.Clear();
+                if (coalitionPartyIds != null)
+                    foreach (var id in coalitionPartyIds) _coalition.Add(id);
+                Recompute();
+                Invalidate();
+            }
+            catch (Exception ex)
+            {
+                PoliticsUserMod.Log("HemicycleView.SetData caught: " + ex.Message);
+            }
         }
 
         private static Texture2D _dotTex;
@@ -58,7 +65,7 @@ namespace PoliticsMod
         /// </summary>
         private static int PickDotTexSize(int totalSeats)
         {
-            if (totalSeats <= 51)  return 128; // up to ~25 seats either side
+            if (totalSeats <= 51) return 128; // up to ~25 seats either side
             if (totalSeats <= 101) return 64;
             if (totalSeats <= 201) return 32;
             return 16;                          // dense parliament, tiny dots
@@ -82,25 +89,25 @@ namespace PoliticsMod
 
             _dotTex = new Texture2D(sz, sz, TextureFormat.ARGB32, false);
             _dotTex.filterMode = FilterMode.Bilinear;
-            _dotTex.wrapMode   = TextureWrapMode.Clamp;
+            _dotTex.wrapMode = TextureWrapMode.Clamp;
 
             float center = (sz - 1) / 2f;
             float outerR = center;
             // Keep the AA band ~1 texel wide, which stays proportional to
             // the texture size so the circle's perceived softness is
             // independent of resolution.
-            float edgeW  = 1.0f;
+            float edgeW = 1.0f;
             for (int y = 0; y < sz; y++)
-            for (int x = 0; x < sz; x++)
-            {
-                float dx = x - center;
-                float dy = y - center;
-                float d  = Mathf.Sqrt(dx * dx + dy * dy);
-                float a = d <= outerR - edgeW
-                    ? 1f
-                    : Mathf.Clamp01(1f - (d - (outerR - edgeW)) / edgeW);
-                _dotTex.SetPixel(x, y, new Color(1, 1, 1, a));
-            }
+                for (int x = 0; x < sz; x++)
+                {
+                    float dx = x - center;
+                    float dy = y - center;
+                    float d = Mathf.Sqrt(dx * dx + dy * dy);
+                    float a = d <= outerR - edgeW
+                        ? 1f
+                        : Mathf.Clamp01(1f - (d - (outerR - edgeW)) / edgeW);
+                    _dotTex.SetPixel(x, y, new Color(1, 1, 1, a));
+                }
             _dotTex.Apply();
             _dotTexSize = sz;
         }
@@ -117,14 +124,14 @@ namespace PoliticsMod
 
             // Layout params
             float padding = 10f;
-            float w = width  - 2 * padding;
+            float w = width - 2 * padding;
             float h = height - 2 * padding;
             // The hemicycle uses a half-circle in the TOP half of the component
             // (baseline along the bottom). center at bottom-middle.
             Vector2 center = new Vector2(padding + w / 2f, padding + h);
             float outerR = Mathf.Min(w / 2f, h);
             // Choose number of rows based on total seats (visually pleasant).
-            int rows = _totalSeats <= 50  ? 3 :
+            int rows = _totalSeats <= 50 ? 3 :
                        _totalSeats <= 100 ? 5 :
                        _totalSeats <= 200 ? 6 :
                        _totalSeats <= 400 ? 8 : 10;
@@ -157,10 +164,16 @@ namespace PoliticsMod
 
             // Party ordering: left-to-right by political ideology economic axis
             // (left parties on the left of the hemicycle).
-            int[] partyOrder = new int[_seats.Length];
-            for (int i = 0; i < partyOrder.Length; i++) partyOrder[i] = i;
+            // SAFE BOUNDS: partyCount is strictly Math.Min(_seats.Length, Config.Parties.Length)
+            int partyCount = Math.Min(_seats.Length, Config.Parties != null ? Config.Parties.Length : 0);
+            int[] partyOrder = new int[partyCount];
+            for (int i = 0; i < partyCount; i++) partyOrder[i] = i;
             Array.Sort(partyOrder, (a, b) =>
-                Config.Parties[a].Ideology.x.CompareTo(Config.Parties[b].Ideology.x));
+            {
+                float xa = (Config.Parties != null && a >= 0 && a < Config.Parties.Length && Config.Parties[a] != null) ? Config.Parties[a].Ideology.x : 0f;
+                float xb = (Config.Parties != null && b >= 0 && b < Config.Parties.Length && Config.Parties[b] != null) ? Config.Parties[b].Ideology.x : 0f;
+                return xa.CompareTo(xb);
+            });
 
             // Flatten seats into an ordered sequence so we know which
             // sequential seat index belongs to which party.
@@ -168,7 +181,7 @@ namespace PoliticsMod
             int k = 0;
             foreach (var pid in partyOrder)
             {
-                int n = (pid < _seats.Length) ? _seats[pid] : 0;
+                int n = (pid >= 0 && pid < _seats.Length) ? _seats[pid] : 0;
                 for (int j = 0; j < n && k < seatOwner.Length; j++) seatOwner[k++] = pid;
             }
             // Unassigned (should not happen unless seat totals mismatch)
@@ -216,57 +229,71 @@ namespace PoliticsMod
         protected override void OnSizeChanged()
         {
             base.OnSizeChanged();
-            Recompute();
-            Invalidate();
+            try
+            {
+                Recompute();
+                Invalidate();
+            }
+            catch (Exception ex)
+            {
+                PoliticsUserMod.Log("HemicycleView.OnSizeChanged caught: " + ex.Message);
+            }
         }
 
         // Render seat dots via OnGUI. (UIComponent OnGUI is called by Unity.)
         private void OnGUI()
         {
-            if (_dots == null || _dots.Length == 0) return;
-            if (!isVisible) return;
-            if (parent == null || !((UIComponent)parent).isVisible) return;
-
-            EnsureTex(_totalSeats);
-            var oldColor = GUI.color;
-
-            // Translate from component-local coords to screen coords.
-            Vector3 absPos = absolutePosition;
-            UIView view = GetUIView();
-            float ratio = view != null ? view.PixelsToUnits() : 1f;
-            // UIComponent.absolutePosition is in UI units; convert to screen pixels.
-            // The GUI.DrawTexture uses screen pixels with origin top-left.
-            float screenScaleX = Screen.width  / (float)view.fixedWidth;
-            float screenScaleY = Screen.height / (float)view.fixedHeight;
-
-            for (int i = 0; i < _dots.Length; i++)
+            try
             {
-                var d = _dots[i];
-                if (d.PartyId < 0) continue;
-                var party = (d.PartyId < Config.Parties.Length) ? Config.Parties[d.PartyId] : null;
-                if (party == null) continue;
-                Color c = party.Color;
-                if (_coalition.Contains(d.PartyId))
+                if (_dots == null || _dots.Length == 0) return;
+                if (!isVisible) return;
+                if (parent == null || !((UIComponent)parent).isVisible) return;
+
+                EnsureTex(_totalSeats);
+                var oldColor = GUI.color;
+
+                // Translate from component-local coords to screen coords.
+                Vector3 absPos = absolutePosition;
+                UIView view = GetUIView();
+                float ratio = view != null ? view.PixelsToUnits() : 1f;
+                // UIComponent.absolutePosition is in UI units; convert to screen pixels.
+                // The GUI.DrawTexture uses screen pixels with origin top-left.
+                float screenScaleX = Screen.width / (float)view.fixedWidth;
+                float screenScaleY = Screen.height / (float)view.fixedHeight;
+
+                for (int i = 0; i < _dots.Length; i++)
                 {
-                    // brighten slightly for coalition seats
-                    c = Color.Lerp((Color)party.Color, Color.white, 0.25f);
+                    var d = _dots[i];
+                    if (d.PartyId < 0) continue;
+                    var party = (Config.Parties != null && d.PartyId >= 0 && d.PartyId < Config.Parties.Length) ? Config.Parties[d.PartyId] : null;
+                    if (party == null) continue;
+                    Color c = party.Color;
+                    if (_coalition.Contains(d.PartyId))
+                    {
+                        // brighten slightly for coalition seats
+                        c = Color.Lerp((Color)party.Color, Color.white, 0.25f);
+                    }
+
+                    float sx = (absPos.x + d.Pos.x) * screenScaleX;
+                    float sy = (absPos.y + d.Pos.y) * screenScaleY;
+                    float sr = d.Radius * Mathf.Min(screenScaleX, screenScaleY);
+
+                    // Outer outline for coalition seats
+                    if (_coalition.Contains(d.PartyId))
+                    {
+                        GUI.color = new Color(1f, 1f, 1f, 0.9f);
+                        GUI.DrawTexture(new Rect(sx - sr - 1, sy - sr - 1, sr * 2 + 2, sr * 2 + 2), _dotTex);
+                    }
+                    GUI.color = c;
+                    GUI.DrawTexture(new Rect(sx - sr, sy - sr, sr * 2, sr * 2), _dotTex);
                 }
 
-                float sx = (absPos.x + d.Pos.x) * screenScaleX;
-                float sy = (absPos.y + d.Pos.y) * screenScaleY;
-                float sr = d.Radius * Mathf.Min(screenScaleX, screenScaleY);
-
-                // Outer outline for coalition seats
-                if (_coalition.Contains(d.PartyId))
-                {
-                    GUI.color = new Color(1f, 1f, 1f, 0.9f);
-                    GUI.DrawTexture(new Rect(sx - sr - 1, sy - sr - 1, sr * 2 + 2, sr * 2 + 2), _dotTex);
-                }
-                GUI.color = c;
-                GUI.DrawTexture(new Rect(sx - sr, sy - sr, sr * 2, sr * 2), _dotTex);
+                GUI.color = oldColor;
             }
-
-            GUI.color = oldColor;
+            catch (Exception ex)
+            {
+                PoliticsUserMod.Log("HemicycleView.OnGUI caught: " + ex.Message);
+            }
         }
     }
 }

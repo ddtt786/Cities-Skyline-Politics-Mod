@@ -122,7 +122,8 @@ namespace PoliticsMod
             try
             {
                 var bm = Singleton<BuildingManager>.instance;
-                uint n = bm.m_buildings.m_size;
+                if (bm == null || bm.m_buildings.m_buffer == null) return;
+                int n = Math.Min((int)bm.m_buildings.m_size, bm.m_buildings.m_buffer.Length);
                 for (ushort i = 1; i < n; i++)
                 {
                     var b = bm.m_buildings.m_buffer[i];
@@ -159,6 +160,23 @@ namespace PoliticsMod
             OverlayMode prev = st.Overlay;
             int next = ((int)st.Overlay + 1) % 4;
             st.Overlay = (OverlayMode)next;
+
+            if (st.Overlay != OverlayMode.Off)
+            {
+                bool hasData = false;
+                if (st.DominantPartyByBuilding != null)
+                {
+                    for (int i = 0; i < st.DominantPartyByBuilding.Length; i++)
+                    {
+                        if (st.DominantPartyByBuilding[i] < PartyCountRef.Value) { hasData = true; break; }
+                    }
+                }
+                if (!hasData)
+                {
+                    try { ElectionEngine.RebuildBuildingOverlayData(); }
+                    catch { }
+                }
+            }
 
             try
             {

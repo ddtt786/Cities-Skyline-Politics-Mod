@@ -70,6 +70,12 @@ namespace PoliticsMod.Localization.Languages
             s[L10nKeys.Overlay_Party] = "Party";
             s[L10nKeys.Overlay_Turnout] = "Turnout";
             s[L10nKeys.Overlay_Satisfaction] = "Satisfaction";
+            s[L10nKeys.Overlay_NoData] = "No data";
+            s[L10nKeys.Overlay_Turnout_Low] = "Low turnout";
+            s[L10nKeys.Overlay_Turnout_High] = "High turnout";
+            s[L10nKeys.Overlay_Satisfaction_Unhappy] = "Unhappy";
+            s[L10nKeys.Overlay_Satisfaction_Happy] = "Happy";
+            s[L10nKeys.Overlay_NoElectionHint] = "No election yet - call a snap election!";
             s[L10nKeys.InfoButton_Prefix] = "Politics: {0}";
 
             // Party editor
@@ -217,6 +223,24 @@ namespace PoliticsMod.Localization.Languages
             // Info-view button
             s[L10nKeys.InfoButton_Tooltip] = "Politics info view: cycle Party / Turnout / Satisfaction";
             s[L10nKeys.InfoButton_DragTooltip] = "Drag to move";
+
+            // Chirper news & bills
+            s[L10nKeys.Chirp_CityNews_Sender] = "City News";
+            s[L10nKeys.Chirp_Election_Called] = "Elections called! Campaign runs for {0} days. Vote counts on election day. #CityPolitics";
+            s[L10nKeys.Chirp_Election_Result] = "{0} wins. Coalition formed with {1} partner(s). Turnout {2}%. #Election";
+            s[L10nKeys.Chirp_Election_Failed] = "Coalition talks collapsed. Snap re-election in {0} days. #CrisisMode";
+            s[L10nKeys.Chirp_Bill_Enacted] = "Parliament votes {0}-{1} to pass bill C-{2}: An Act to {3}.{4}";
+            s[L10nKeys.Chirp_Bill_Repealed] = "Parliament votes {0}-{1} to REPEAL bill C-{2}: An Act to end {3}.{4}";
+            s[L10nKeys.Chirp_Bill_BudgetTax] = "Parliament votes {0}-{1} to pass bill C-{2} (Budget & Tax): An Act to {3}.{4}";
+            s[L10nKeys.Chirp_Bill_Abstentions] = "  ({0} abstentions)";
+            s[L10nKeys.Chirp_Budget_Raise] = "raise {0} by {1}%";
+            s[L10nKeys.Chirp_Budget_Cut] = "cut {0} by {1}%";
+            s[L10nKeys.Chirp_Tax_Raise] = "raise {0} by {1}%";
+            s[L10nKeys.Chirp_Tax_Cut] = "cut {0} by {1}%";
+            s[L10nKeys.Chirp_And_More] = " (and {0} more)";
+            s[L10nKeys.Chirp_Toast_Coalition] = "{0} forms government with {1} partner(s).";
+            s[L10nKeys.Chirp_Toast_Failed] = "No coalition could be formed. Snap re-election in {0} days.";
+            s[L10nKeys.Chirp_Toast_Campaign] = "Snap election called! Campaign runs for {0} days.";
 
             return new Language("en", "English", s);
         }

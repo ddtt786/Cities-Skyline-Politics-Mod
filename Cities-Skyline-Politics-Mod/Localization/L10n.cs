@@ -108,17 +108,31 @@ namespace PoliticsMod.Localization
             Register(Languages.Ru.Build());
         }
 
+        public static string NormalizeLanguageCode(string raw)
+        {
+            if (string.IsNullOrEmpty(raw)) return null;
+            raw = raw.Trim().ToLowerInvariant();
+            if (raw.StartsWith("ko") || raw.StartsWith("kr") || raw.Contains("korean")) return "ko";
+            if (raw.StartsWith("zh") || raw.StartsWith("cn") || raw.Contains("chinese")) return "zh";
+            if (raw.StartsWith("ja") || raw.StartsWith("jp") || raw.Contains("japanese")) return "ja";
+            if (raw.StartsWith("ru") || raw.Contains("russian")) return "ru";
+            if (raw.StartsWith("pt") || raw.Contains("portuguese")) return "pt";
+            if (raw.StartsWith("en") || raw.Contains("english")) return "en";
+            return raw;
+        }
+
         private static void SelectForGameLanguage()
         {
             // User-locked override takes precedence over the game language.
-            string overrideCode = RuntimeConfig.LanguageOverride;
+            string overrideCode = NormalizeLanguageCode(RuntimeConfig.LanguageOverride);
             if (!string.IsNullOrEmpty(overrideCode) && _catalogs.ContainsKey(overrideCode))
             {
                 _current = _catalogs[overrideCode];
                 return;
             }
 
-            string gameCode = TryGetGameLanguage();
+            string rawCode = TryGetGameLanguage();
+            string gameCode = NormalizeLanguageCode(rawCode);
             if (!string.IsNullOrEmpty(gameCode) && _catalogs.ContainsKey(gameCode))
             {
                 _current = _catalogs[gameCode];
@@ -126,8 +140,8 @@ namespace PoliticsMod.Localization
             else
             {
                 _current = _fallback;
-                if (!string.IsNullOrEmpty(gameCode))
-                    PoliticsUserMod.Log("L10n: '" + gameCode + "' unsupported, using English.");
+                if (!string.IsNullOrEmpty(rawCode))
+                    PoliticsUserMod.Log("L10n: '" + rawCode + "' (normalized: '" + (gameCode ?? "") + "') unsupported, using English.");
             }
         }
 

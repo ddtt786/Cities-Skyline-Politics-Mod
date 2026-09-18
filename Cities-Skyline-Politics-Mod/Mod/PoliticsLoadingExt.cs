@@ -58,10 +58,11 @@ namespace PoliticsMod
             {
                 if (st.DominantPartyByBuilding[i] < PartyCountRef.Value) { hasOverlayData = true; break; }
             }
-            if (!hasOverlayData && (st.LastResult != null || st.History.Count > 0))
+            if (!hasOverlayData)
             {
                 PoliticsUserMod.Log("Rebuilding building overlay data from residents on load...");
-                ElectionEngine.RebuildBuildingOverlayData();
+                try { ElectionEngine.RebuildBuildingOverlayData(); }
+                catch (Exception ex) { PoliticsUserMod.Log("RebuildBuildingOverlayData on load failed: " + ex.Message); }
             }
 
             st.Initialized = true;

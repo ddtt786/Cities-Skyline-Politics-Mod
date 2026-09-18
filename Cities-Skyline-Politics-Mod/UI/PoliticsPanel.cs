@@ -20,9 +20,9 @@ namespace PoliticsMod
     public class PoliticsPanel : UIPanel
     {
         public static string LatestToast;
-        public static float  LatestToastTime;
+        public static float LatestToastTime;
         public static string ResultsPopupText;
-        public static float  ResultsPopupShownUntil;
+        public static float ResultsPopupShownUntil;
 
         // Singleton pointer set when the loading extension creates the panel.
         // Used by the mod settings panel to open the main window.
@@ -54,7 +54,7 @@ namespace PoliticsMod
 
         // Runtime config sliders
         private UISlider _termSlider, _campSlider, _coolSlider;
-        private UILabel  _termLbl,    _campLbl,    _coolLbl;
+        private UILabel _termLbl, _campLbl, _coolLbl;
 
         public override void Start()
         {
@@ -230,11 +230,15 @@ namespace PoliticsMod
             pollBtn.text = L10n.T(L10nKeys.Panel_Button_OpinionPolling);
             pollBtn.size = new Vector2(200, 32);
             pollBtn.relativePosition = new Vector3(15, height - 170);
-            pollBtn.normalBgSprite  = "ButtonMenu";
+            pollBtn.normalBgSprite = "ButtonMenu";
             pollBtn.hoveredBgSprite = "ButtonMenuHovered";
             pollBtn.pressedBgSprite = "ButtonMenuPressed";
             pollBtn.textColor = Color.white;
-            pollBtn.eventClick += (c, p) => { OpinionPollingPanel.Toggle(); };
+            pollBtn.eventClick += (c, p) =>
+            {
+                try { OpinionPollingPanel.Toggle(); }
+                catch (Exception ex) { PoliticsUserMod.Log("pollBtn.eventClick caught: " + ex.Message); }
+            };
 
             // -------- Minimize Chirps checkbox --------
             var minChirpsCB = AddUIComponent<UICheckBox>();
@@ -309,7 +313,7 @@ namespace PoliticsMod
             slider.minValue = min;
             slider.maxValue = max;
             slider.stepSize = 1f;
-            slider.value    = Mathf.Clamp(value, min, max);
+            slider.value = Mathf.Clamp(value, min, max);
 
             // Slider visual bits
             var track = slider.AddUIComponent<UISlicedSprite>();
@@ -326,9 +330,9 @@ namespace PoliticsMod
 
             if (!string.IsNullOrEmpty(tooltip))
             {
-                nameLbl.tooltip  = tooltip;
+                nameLbl.tooltip = tooltip;
                 valueLbl.tooltip = tooltip;
-                slider.tooltip   = tooltip;
+                slider.tooltip = tooltip;
             }
 
             // Return value label so we can update it from UpdateSliderLabels
@@ -353,84 +357,91 @@ namespace PoliticsMod
         {
             base.Update();
 
-            // NOTE: hotkey detection lives in PoliticsOverlay.Update() (a
-            // plain MonoBehaviour on a DontDestroyOnLoad GameObject). Hosting
-            // it here was unreliable because the Colossal UI framework stops
-            // ticking UIComponent.Update() on components that were never
-            // visible, leaving brand-new sessions with no way to open the
-            // panel.
-
             if (!isVisible) return;
 
-            var st = PoliticsState.Instance;
-            if (st == null) return;
-
-            if (st.Phase == ElectionPhase.Campaign)
+            try
             {
-                _phaseLabel.text = L10n.T(L10nKeys.Panel_Phase_Campaign,
-                    LocalizedPhaseName(st.Phase),
-                    Mathf.Clamp((int)st.DaysSinceCampaignStart + 1,
-                                1, (int)RuntimeConfig.CampaignLengthDays),
-                    (int)RuntimeConfig.CampaignLengthDays);
-            }
-            else
-            {
-                _phaseLabel.text = L10n.T(L10nKeys.Panel_Phase_Term,
-                    LocalizedPhaseName(st.Phase),
-                    (int)st.DaysSinceLastElection, (int)RuntimeConfig.TermLengthDays);
-            }
+                var st = PoliticsState.Instance;
+                if (st == null) return;
 
-            // Parliament hemicycle + legend
-            var coalSet = new HashSet<int>(st.CoalitionPartyIds ?? new List<int>());
-            if (_hemi != null) _hemi.SetData(st.CurrentSeats, coalSet, Config.ParliamentSeats);
-            if (_legend != null) _legend.Refresh(st.CurrentSeats, coalSet, Config.ParliamentSeats);
-
-            // Coalition
-            if (st.CoalitionPartyIds != null && st.CoalitionPartyIds.Count > 0)
-            {
-                var sb = new StringBuilder();
-                for (int i = 0; i < st.CoalitionPartyIds.Count; i++)
+                if (st.Phase == ElectionPhase.Campaign)
                 {
-                    if (i > 0) sb.Append(" + ");
-                    sb.Append(Config.Parties[st.CoalitionPartyIds[i]].ShortName);
+                    _phaseLabel.text = L10n.T(L10nKeys.Panel_Phase_Campaign,
+                        LocalizedPhaseName(st.Phase),
+                        Mathf.Clamp((int)st.DaysSinceCampaignStart + 1,
+                                    1, (int)RuntimeConfig.CampaignLengthDays),
+                        (int)RuntimeConfig.CampaignLengthDays);
                 }
-                int totalSeats = 0;
-                foreach (var id in st.CoalitionPartyIds) totalSeats += st.CurrentSeats[id];
-                _coalitionLabel.text = L10n.T(L10nKeys.Panel_Coalition_Header,
-                    sb.ToString(), totalSeats, Config.ParliamentSeats);
-            }
-            else
-            {
-                _coalitionLabel.text = L10n.T(L10nKeys.Panel_Coalition_None);
-            }
+                else
+                {
+                    _phaseLabel.text = L10n.T(L10nKeys.Panel_Phase_Term,
+                        LocalizedPhaseName(st.Phase),
+                        (int)st.DaysSinceLastElection, (int)RuntimeConfig.TermLengthDays);
+                }
 
-            // Policies - horizontal icon row. The row is rebuilt only when
-            // the list of applied policies actually changes (hash compare),
-            // so we're not churning UI components every frame.
-            var policies = st.AppliedVanillaPolicies;
-            int hash = 17;
-            if (policies != null)
-            {
-                for (int i = 0; i < policies.Count; i++)
-                    hash = unchecked(hash * 31 + (int)policies[i]);
-            }
-            if (hash != _lastPoliciesHash)
-            {
-                _lastPoliciesHash = hash;
-                RebuildPoliciesIcons(policies);
-            }
+                // Parliament hemicycle + legend
+                var coalSet = new HashSet<int>(st.CoalitionPartyIds ?? new List<int>());
+                if (_hemi != null) _hemi.SetData(st.CurrentSeats, coalSet, Config.ParliamentSeats);
+                if (_legend != null) _legend.Refresh(st.CurrentSeats, coalSet, Config.ParliamentSeats);
 
-            _overlayBtn.text = L10n.T(L10nKeys.Panel_Overlay_Prefix, LocalizedOverlayName(st.Overlay));
+                // Coalition
+                var parties = Config.Parties;
+                if (st.CoalitionPartyIds != null && st.CoalitionPartyIds.Count > 0 && parties != null)
+                {
+                    var sb = new StringBuilder();
+                    for (int i = 0; i < st.CoalitionPartyIds.Count; i++)
+                    {
+                        int pid = st.CoalitionPartyIds[i];
+                        if (pid < 0 || pid >= parties.Length) continue;
+                        if (sb.Length > 0) sb.Append(" + ");
+                        sb.Append(parties[pid].ShortName);
+                    }
+                    int totalSeats = 0;
+                    foreach (var id in st.CoalitionPartyIds)
+                    {
+                        if (id >= 0 && st.CurrentSeats != null && id < st.CurrentSeats.Length)
+                            totalSeats += st.CurrentSeats[id];
+                    }
+                    _coalitionLabel.text = L10n.T(L10nKeys.Panel_Coalition_Header,
+                        sb.ToString(), totalSeats, Config.ParliamentSeats);
+                }
+                else
+                {
+                    _coalitionLabel.text = L10n.T(L10nKeys.Panel_Coalition_None);
+                }
+
+                // Policies - horizontal icon row. The row is rebuilt only when
+                // the list of applied policies actually changes (hash compare),
+                // so we're not churning UI components every frame.
+                var policies = st.AppliedVanillaPolicies;
+                int hash = 17;
+                if (policies != null)
+                {
+                    for (int i = 0; i < policies.Count; i++)
+                        hash = unchecked(hash * 31 + (int)policies[i]);
+                }
+                if (hash != _lastPoliciesHash)
+                {
+                    _lastPoliciesHash = hash;
+                    RebuildPoliciesIcons(policies);
+                }
+
+                _overlayBtn.text = L10n.T(L10nKeys.Panel_Overlay_Prefix, LocalizedOverlayName(st.Overlay));
+            }
+            catch (Exception ex)
+            {
+                PoliticsUserMod.Log("PoliticsPanel.Update suppressed exception: " + ex.Message);
+            }
         }
 
         private static string LocalizedOverlayName(OverlayMode m)
         {
             switch (m)
             {
-                case OverlayMode.Party:        return L10n.T(L10nKeys.Overlay_Party);
-                case OverlayMode.Turnout:      return L10n.T(L10nKeys.Overlay_Turnout);
+                case OverlayMode.Party: return L10n.T(L10nKeys.Overlay_Party);
+                case OverlayMode.Turnout: return L10n.T(L10nKeys.Overlay_Turnout);
                 case OverlayMode.Satisfaction: return L10n.T(L10nKeys.Overlay_Satisfaction);
-                default:                       return L10n.T(L10nKeys.Overlay_Off);
+                default: return L10n.T(L10nKeys.Overlay_Off);
             }
         }
 
@@ -438,13 +449,13 @@ namespace PoliticsMod
         {
             switch (p)
             {
-                case ElectionPhase.Idle:      return L10n.T(L10nKeys.Phase_Idle);
-                case ElectionPhase.Campaign:  return L10n.T(L10nKeys.Phase_Campaign);
-                case ElectionPhase.Voting:    return L10n.T(L10nKeys.Phase_Voting);
-                case ElectionPhase.Forming:   return L10n.T(L10nKeys.Phase_Forming);
+                case ElectionPhase.Idle: return L10n.T(L10nKeys.Phase_Idle);
+                case ElectionPhase.Campaign: return L10n.T(L10nKeys.Phase_Campaign);
+                case ElectionPhase.Voting: return L10n.T(L10nKeys.Phase_Voting);
+                case ElectionPhase.Forming: return L10n.T(L10nKeys.Phase_Forming);
                 case ElectionPhase.Governing: return L10n.T(L10nKeys.Phase_Governing);
-                case ElectionPhase.Failed:    return L10n.T(L10nKeys.Phase_Failed);
-                default:                      return p.ToString();
+                case ElectionPhase.Failed: return L10n.T(L10nKeys.Phase_Failed);
+                default: return p.ToString();
             }
         }
 
@@ -479,7 +490,7 @@ namespace PoliticsMod
             var atlas = view != null ? view.defaultAtlas : null;
 
             const float iconSize = 22f;
-            const float gap      = 3f;
+            const float gap = 3f;
             float slotW = iconSize + gap;
 
             // How many icons physically fit into the row.
@@ -533,40 +544,47 @@ namespace PoliticsMod
 
         private void OnGUI()
         {
-            // Toast
-            if (!string.IsNullOrEmpty(LatestToast) &&
-                Time.realtimeSinceStartup - LatestToastTime < Config.NotificationDurationS)
+            try
             {
-                var s = new GUIStyle(GUI.skin.box);
-                s.fontSize = 16;
-                s.normal.textColor = Color.white;
-                GUI.Box(new Rect(Screen.width / 2f - 250f, 40f, 500f, 40f), LatestToast, s);
-            }
-            // Results popup
-            if (!string.IsNullOrEmpty(ResultsPopupText) &&
-                Time.realtimeSinceStartup < ResultsPopupShownUntil)
-            {
-                var s = new GUIStyle(GUI.skin.box);
-                s.fontSize = 14;
-                s.normal.textColor = Color.white;
-                s.alignment = TextAnchor.UpperLeft;
-                // Reserve a bit of top-right padding inside the box for the
-                // close button so text doesn't run under it.
-                s.padding = new RectOffset(8, 36, 8, 8);
-                Rect boxRect = new Rect(Screen.width - 460f, 100f, 440f, 260f);
-                GUI.Box(boxRect, ResultsPopupText, s);
-
-                // Close button in the top-right corner of the popup.
-                var closeStyle = new GUIStyle(GUI.skin.button);
-                closeStyle.fontSize = 14;
-                closeStyle.alignment = TextAnchor.MiddleCenter;
-                Rect closeRect = new Rect(boxRect.xMax - 28f, boxRect.y + 6f, 22f, 22f);
-                if (GUI.Button(closeRect, "x", closeStyle))
+                // Toast
+                if (!string.IsNullOrEmpty(LatestToast) &&
+                    Time.realtimeSinceStartup - LatestToastTime < Config.NotificationDurationS)
                 {
-                    // Force-hide immediately. The guard above re-evaluates
-                    // next frame and skips rendering.
-                    ResultsPopupShownUntil = 0f;
+                    var s = new GUIStyle(GUI.skin.box);
+                    s.fontSize = 16;
+                    s.normal.textColor = Color.white;
+                    GUI.Box(new Rect(Screen.width / 2f - 250f, 40f, 500f, 40f), LatestToast, s);
                 }
+                // Results popup
+                if (!string.IsNullOrEmpty(ResultsPopupText) &&
+                    Time.realtimeSinceStartup < ResultsPopupShownUntil)
+                {
+                    var s = new GUIStyle(GUI.skin.box);
+                    s.fontSize = 14;
+                    s.normal.textColor = Color.white;
+                    s.alignment = TextAnchor.UpperLeft;
+                    // Reserve a bit of top-right padding inside the box for the
+                    // close button so text doesn't run under it.
+                    s.padding = new RectOffset(8, 36, 8, 8);
+                    Rect boxRect = new Rect(Screen.width - 460f, 100f, 440f, 260f);
+                    GUI.Box(boxRect, ResultsPopupText, s);
+
+                    // Close button in the top-right corner of the popup.
+                    var closeStyle = new GUIStyle(GUI.skin.button);
+                    closeStyle.fontSize = 14;
+                    closeStyle.alignment = TextAnchor.MiddleCenter;
+                    Rect closeRect = new Rect(boxRect.xMax - 28f, boxRect.y + 6f, 22f, 22f);
+                    if (GUI.Button(closeRect, "x", closeStyle))
+                    {
+                        // Force-hide immediately. The guard above re-evaluates
+                        // next frame and skips rendering.
+                        ResultsPopupShownUntil = 0f;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                PoliticsUserMod.Log("PoliticsPanel.OnGUI caught: " + ex.Message);
             }
         }
     }

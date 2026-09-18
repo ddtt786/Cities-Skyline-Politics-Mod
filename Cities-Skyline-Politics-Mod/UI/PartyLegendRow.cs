@@ -28,7 +28,7 @@ namespace PoliticsMod
         // doubling the panel's height. Anything up to this count still
         // renders as a single row so the compact look stays for small
         // party counts.
-        private const int   MaxPerRow = 6;
+        private const int MaxPerRow = 6;
         private const float RowHeight = 22f;
 
         /// <summary>How many rows Build() will use for the given item count.</summary>
@@ -46,7 +46,7 @@ namespace PoliticsMod
         public void Build(int itemsCount)
         {
             _items = new UILabel[itemsCount];
-            int rows   = RowsFor(itemsCount);
+            int rows = RowsFor(itemsCount);
             // Distribute items as evenly as possible across rows.
             int perRow = Mathf.Max(1, Mathf.CeilToInt(itemsCount / (float)rows));
             float cellW = (width - 4f) / perRow;
@@ -70,31 +70,41 @@ namespace PoliticsMod
 
         public void Refresh(int[] seats, HashSet<int> coalition, int total)
         {
-            int want = Config.Parties.Length;
-            // Self-heal: if the party count changed (add/remove in the editor)
-            // our cached _items no longer matches. Destroy the old items and
-            // rebuild so later iteration is safe.
-            if (_items == null || _items.Length != want)
+            try
             {
-                var toKill = new List<GameObject>();
-                foreach (Transform t in transform) toKill.Add(t.gameObject);
-                foreach (var g in toKill) UnityEngine.Object.Destroy(g);
-                Build(want);
-            }
-            if (_items == null) return;
+                if (Config.Parties == null) return;
+                int want = Config.Parties.Length;
+                // Self-heal: if the party count changed (add/remove in the editor)
+                // our cached _items no longer matches. Destroy the old items and
+                // rebuild so later iteration is safe.
+                if (_items == null || _items.Length != want)
+                {
+                    var toKill = new List<GameObject>();
+                    foreach (Transform t in transform) toKill.Add(t.gameObject);
+                    foreach (var g in toKill) UnityEngine.Object.Destroy(g);
+                    Build(want);
+                }
+                if (_items == null) return;
 
-            int n = Mathf.Min(_items.Length, Config.Parties.Length);
-            for (int i = 0; i < n; i++)
+                int n = Mathf.Min(_items.Length, Config.Parties.Length);
+                for (int i = 0; i < n; i++)
+                {
+                    var p = Config.Parties[i];
+                    if (p == null) continue;
+                    int s = (seats != null && i < seats.Length) ? seats[i] : 0;
+                    bool inCoal = coalition != null && coalition.Contains(i);
+                    // Coalition parties get a *; non-coalition get a small -.
+                    string marker = inCoal ? "*" : "-";
+                    string text = string.Format(
+                        "<color #{0:X2}{1:X2}{2:X2}>{3}</color> {4} {5}",
+                        p.Color.r, p.Color.g, p.Color.b, marker, p.ShortName ?? "", s);
+                    if (i < _items.Length && _items[i] != null)
+                        _items[i].text = text;
+                }
+            }
+            catch (Exception ex)
             {
-                var p = Config.Parties[i];
-                int s = i < seats.Length ? seats[i] : 0;
-                bool inCoal = coalition != null && coalition.Contains(i);
-                // Coalition parties get a *; non-coalition get a small -.
-                string marker = inCoal ? "*" : "-";
-                string text = string.Format(
-                    "<color #{0:X2}{1:X2}{2:X2}>{3}</color> {4} {5}",
-                    p.Color.r, p.Color.g, p.Color.b, marker, p.ShortName, s);
-                _items[i].text = text;
+                PoliticsUserMod.Log("PartyLegendRow.Refresh caught: " + ex.Message);
             }
         }
     }
